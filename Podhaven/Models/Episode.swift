@@ -10,6 +10,7 @@ final class Episode {
     var guid: String
     var title: String
     var episodeDescription: String?
+    var showNotesHTML: String?
     var audioURL: String
     var publishDate: Date?
     var duration: TimeInterval?
@@ -41,6 +42,7 @@ final class Episode {
         title: String,
         audioURL: String,
         episodeDescription: String? = nil,
+        showNotesHTML: String? = nil,
         publishDate: Date? = nil,
         duration: TimeInterval? = nil,
         fileSize: Int64? = nil,
@@ -53,6 +55,7 @@ final class Episode {
         self.title = title
         self.audioURL = audioURL
         self.episodeDescription = episodeDescription
+        self.showNotesHTML = showNotesHTML
         self.publishDate = publishDate
         self.duration = duration
         self.fileSize = fileSize
@@ -127,6 +130,7 @@ extension Episode {
             title: "Sample Episode",
             audioURL: "https://example.com/episode1.mp3",
             episodeDescription: "This is a sample episode for testing.",
+            showNotesHTML: "<p>This is a sample episode for testing.</p><ul><li>Point 1</li><li>Point 2</li></ul>",
             publishDate: Date(),
             duration: 3600
         )

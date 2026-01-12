@@ -26,8 +26,8 @@ struct ContentView: View {
                     }
             }
             
-            // Mini player shown when something is playing
-            if playerService.currentEpisode != nil {
+            // Mini player shown when something is playing (but not on Settings tab)
+            if playerService.currentEpisode != nil && selectedTab != .settings {
                 MiniPlayerView()
                     .padding(.bottom, 49) // Tab bar height
             }

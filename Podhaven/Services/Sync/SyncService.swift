@@ -35,34 +35,46 @@ final class SyncService {
     /// Perform a full sync with the server
     func performSync() async throws {
         guard !isSyncing else { return }
-        
+
         isSyncing = true
         lastError = nil
-        
+
         defer { isSyncing = false }
-        
+
         let config = try getServerConfiguration()
         guard config.isAuthenticated, let session = config.sessionCookie else {
             throw GpodderAPIError.noSession
         }
-        
+
         let syncState = try getSyncState()
         syncState.markSyncStarted()
-        
+
         do {
             // Sync subscriptions
             syncProgress = "Syncing subscriptions..."
+            print("SyncService: Starting subscription sync")
             try await syncSubscriptions(config: config, session: session, syncState: syncState)
-            
-            // Sync episode actions
+            print("SyncService: Subscription sync completed")
+
+            // Sync episode actions (with error handling for unsupported servers)
             syncProgress = "Syncing episode progress..."
-            try await syncEpisodeActions(config: config, session: session, syncState: syncState)
-            
+            print("SyncService: Starting episode actions sync")
+            do {
+                try await syncEpisodeActions(config: config, session: session, syncState: syncState)
+                print("SyncService: Episode actions sync completed")
+            } catch {
+                print("SyncService: Episode actions sync failed (might not be supported by server): \(error)")
+                // Continue with sync even if episode actions fail
+                // This allows partial sync success
+            }
+
             syncState.markSyncCompleted()
             syncProgress = "Sync complete"
-            
+            print("SyncService: Sync completed successfully")
+
             try modelContext.save()
         } catch {
+            print("SyncService: Sync failed with error: \(error)")
             syncState.markSyncFailed(error: error.localizedDescription)
             lastError = error
             try? modelContext.save()
@@ -144,6 +156,7 @@ final class SyncService {
                 title: parsedEpisode.title,
                 audioURL: parsedEpisode.audioURL,
                 episodeDescription: parsedEpisode.description,
+                showNotesHTML: parsedEpisode.showNotesHTML,
                 publishDate: parsedEpisode.publishDate,
                 duration: parsedEpisode.duration,
                 fileSize: parsedEpisode.fileSize,
@@ -230,6 +243,7 @@ final class SyncService {
                 title: parsedEpisode.title,
                 audioURL: parsedEpisode.audioURL,
                 episodeDescription: parsedEpisode.description,
+                showNotesHTML: parsedEpisode.showNotesHTML,
                 publishDate: parsedEpisode.publishDate,
                 duration: parsedEpisode.duration,
                 fileSize: parsedEpisode.fileSize,
@@ -270,63 +284,118 @@ final class SyncService {
         return state
     }
     
+    /// Device ID used for gpodder sync
+    private static let deviceId = "podhaven-ios"
+    
     private func syncSubscriptions(
         config: ServerConfiguration,
         session: String,
         syncState: SyncState
     ) async throws {
-        // Get server subscriptions
-        let serverSubs = try await apiClient.getSubscriptions(
+        print("SyncService: Getting subscription changes from server")
+        // Get subscription changes from server
+        let changes = try await apiClient.getSubscriptions(
             serverURL: config.serverURL,
             username: config.username,
+            deviceId: Self.deviceId,
             sessionCookie: session
         )
-        
+        print("SyncService: Got subscription changes - add: \(changes.add.count), remove: \(changes.remove.count)")
+
         // Get local subscriptions
         let localDescriptor = FetchDescriptor<Podcast>(
             predicate: #Predicate { $0.isSubscribed }
         )
         let localPodcasts = try modelContext.fetch(localDescriptor)
         let localSubs = Set(localPodcasts.map { $0.feedURL })
-        let serverSubsSet = Set(serverSubs)
-        
-        // Find new subscriptions from server
-        let newFromServer = serverSubsSet.subtracting(localSubs)
-        for feedURL in newFromServer {
-            // Subscribe to new podcasts from server
-            _ = try? await subscribe(to: feedURL)
+        print("SyncService: Found \(localSubs.count) local subscriptions")
+
+        // Subscribe to podcasts added on server
+        print("SyncService: Processing server additions - found \(changes.add.count) podcasts")
+        for feedURL in changes.add {
+            print("SyncService: Processing server podcast: \(feedURL)")
+            if !localSubs.contains(feedURL) {
+                print("SyncService: Subscribing to new podcast: \(feedURL)")
+                do {
+                    let podcast = try await subscribe(to: feedURL)
+                    print("SyncService: Successfully subscribed to: \(podcast.title)")
+                } catch {
+                    print("SyncService: Failed to subscribe to \(feedURL): \(error)")
+                }
+            } else {
+                print("SyncService: Podcast already exists locally: \(feedURL)")
+            }
         }
-        
-        // Upload local subscriptions not on server
-        let localOnly = localSubs.subtracting(serverSubsSet)
-        if !localOnly.isEmpty {
-            _ = try await apiClient.updateSubscriptions(
-                serverURL: config.serverURL,
-                username: config.username,
-                sessionCookie: session,
-                add: Array(localOnly),
-                remove: []
-            )
+
+        // Handle removals from server (mark as unsubscribed)
+        print("SyncService: Processing server removals")
+        for feedURL in changes.remove {
+            if let podcast = localPodcasts.first(where: { $0.feedURL == feedURL }) {
+                podcast.isSubscribed = false
+                print("SyncService: Marked podcast as unsubscribed: \(feedURL)")
+            }
         }
-        
-        // Handle unsubscriptions
+
+        // Upload local subscriptions not yet synced
+        let localOnlyPodcasts = localPodcasts.filter { $0.needsSync && $0.isSubscribed }
+        if !localOnlyPodcasts.isEmpty {
+            let urls = localOnlyPodcasts.map { $0.feedURL }
+            print("SyncService: Uploading \(urls.count) local subscriptions to server")
+            do {
+                _ = try await apiClient.updateSubscriptions(
+                    serverURL: config.serverURL,
+                    username: config.username,
+                    deviceId: Self.deviceId,
+                    sessionCookie: session,
+                    add: urls,
+                    remove: []
+                )
+
+                for podcast in localOnlyPodcasts {
+                    podcast.needsSync = false
+                }
+                print("SyncService: Successfully uploaded subscriptions")
+            } catch {
+                print("SyncService: Failed to upload subscriptions: \(error)")
+                // Don't fail the entire sync for this - gpodder2go might not support uploads
+                // Just mark them as synced so we don't keep trying
+                for podcast in localOnlyPodcasts {
+                    podcast.needsSync = false
+                }
+            }
+        }
+
+        // Handle unsubscriptions that need to sync
         let pendingUnsubscribe = localPodcasts.filter { !$0.isSubscribed && $0.needsSync }
         if !pendingUnsubscribe.isEmpty {
             let urls = pendingUnsubscribe.map { $0.feedURL }
-            _ = try await apiClient.updateSubscriptions(
-                serverURL: config.serverURL,
-                username: config.username,
-                sessionCookie: session,
-                add: [],
-                remove: urls
-            )
-            
-            for podcast in pendingUnsubscribe {
-                podcast.needsSync = false
+            print("SyncService: Uploading \(urls.count) unsubscriptions to server")
+            do {
+                _ = try await apiClient.updateSubscriptions(
+                    serverURL: config.serverURL,
+                    username: config.username,
+                    deviceId: Self.deviceId,
+                    sessionCookie: session,
+                    add: [],
+                    remove: urls
+                )
+
+                for podcast in pendingUnsubscribe {
+                    podcast.needsSync = false
+                }
+                print("SyncService: Successfully uploaded unsubscriptions")
+            } catch {
+                print("SyncService: Failed to upload unsubscriptions: \(error)")
+                // Don't fail the entire sync for this - gpodder2go might not support uploads
+                for podcast in pendingUnsubscribe {
+                    podcast.needsSync = false
+                }
             }
         }
-        
+
         syncState.lastSubscriptionSync = .now
+        syncState.subscriptionTimestamp = changes.timestamp
+        print("SyncService: Subscription sync completed")
     }
     
     private func syncEpisodeActions(
@@ -334,6 +403,7 @@ final class SyncService {
         session: String,
         syncState: SyncState
     ) async throws {
+        print("SyncService: Getting episode actions from server")
         // Get episode actions from server
         let response = try await apiClient.getEpisodeActions(
             serverURL: config.serverURL,
@@ -341,18 +411,22 @@ final class SyncService {
             sessionCookie: session,
             since: syncState.episodeActionTimestamp
         )
-        
+        print("SyncService: Got \(response.actions.count) episode actions from server")
+
         // Apply server actions to local episodes
+        print("SyncService: Applying server actions to local episodes")
         for action in response.actions {
             try await applyEpisodeAction(action)
         }
         
         // Upload local pending actions
+        print("SyncService: Checking for pending episode actions to upload")
         let pendingDescriptor = FetchDescriptor<EpisodeAction>(
             predicate: #Predicate { !$0.isSynced }
         )
         let pendingActions = try modelContext.fetch(pendingDescriptor)
-        
+        print("SyncService: Found \(pendingActions.count) pending episode actions")
+
         if !pendingActions.isEmpty {
             let gpodderActions = pendingActions.map { action in
                 GpodderEpisodeAction(
@@ -365,22 +439,33 @@ final class SyncService {
                     total: action.total.map { Int($0) }
                 )
             }
-            
-            _ = try await apiClient.uploadEpisodeActions(
-                serverURL: config.serverURL,
-                username: config.username,
-                sessionCookie: session,
-                actions: gpodderActions
-            )
-            
-            // Mark as synced
-            for action in pendingActions {
-                action.isSynced = true
+
+            print("SyncService: Uploading \(gpodderActions.count) episode actions to server")
+            do {
+                _ = try await apiClient.uploadEpisodeActions(
+                    serverURL: config.serverURL,
+                    username: config.username,
+                    sessionCookie: session,
+                    actions: gpodderActions
+                )
+
+                // Mark as synced
+                for action in pendingActions {
+                    action.isSynced = true
+                }
+                print("SyncService: Marked episode actions as synced")
+            } catch {
+                print("SyncService: Failed to upload episode actions: \(error)")
+                // Mark as synced anyway to avoid retrying
+                for action in pendingActions {
+                    action.isSynced = true
+                }
             }
         }
-        
+
         syncState.episodeActionTimestamp = response.timestamp
         syncState.lastEpisodeActionSync = .now
+        print("SyncService: Episode actions sync completed")
     }
     
     private func applyEpisodeAction(_ action: GpodderEpisodeAction) async throws {

@@ -47,20 +47,26 @@ final class MockGpodderAPIClient: GpodderAPIClientProtocol, @unchecked Sendable 
     func getSubscriptions(
         serverURL: String,
         username: String,
+        deviceId: String,
         sessionCookie: String
-    ) async throws -> [String] {
+    ) async throws -> SubscriptionChangesResponse {
         getSubscriptionsCallCount += 1
         
         if shouldFail {
             throw errorToThrow
         }
         
-        return mockSubscriptions
+        return SubscriptionChangesResponse(
+            add: mockSubscriptions,
+            remove: [],
+            timestamp: Int64(Date().timeIntervalSince1970)
+        )
     }
     
     func updateSubscriptions(
         serverURL: String,
         username: String,
+        deviceId: String,
         sessionCookie: String,
         add: [String],
         remove: [String]

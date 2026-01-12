@@ -10,6 +10,13 @@ struct AuthResponse: Codable, Sendable {
 
 // MARK: - Subscriptions
 
+/// Response from GET /api/2/subscriptions/{username}/{deviceid}.json
+struct SubscriptionChangesResponse: Codable, Sendable {
+    let add: [String]
+    let remove: [String]
+    let timestamp: Int64
+}
+
 struct SubscriptionUpdateRequest: Codable, Sendable {
     let add: [String]
     let remove: [String]

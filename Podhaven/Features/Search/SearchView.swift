@@ -7,6 +7,9 @@ struct SearchView: View {
     @State private var searchResults: [PodcastSearchResult] = []
     @State private var isSearching = false
     @State private var hasSearched = false
+    @State private var searchError: String?
+    
+    private let searchService = ITunesSearchService()
     
     var body: some View {
         NavigationStack {
@@ -26,6 +29,17 @@ struct SearchView: View {
                     await performSearch()
                 }
             }
+            .onChange(of: searchText) { _, newValue in
+                // Debounced search as user types
+                if !newValue.isEmpty && !newValue.hasPrefix("http") {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(300))
+                        if searchText == newValue {
+                            await performSearch()
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -41,7 +55,11 @@ struct SearchView: View {
         ContentUnavailableView {
             Label("No Results", systemImage: "magnifyingglass")
         } description: {
-            Text("No podcasts found for \"\(searchText)\"")
+            if let error = searchError {
+                Text(error)
+            } else {
+                Text("No podcasts found for \"\(searchText)\"")
+            }
         } actions: {
             if searchText.contains("http") || searchText.contains(".") {
                 Button("Try as RSS URL") {
@@ -60,6 +78,7 @@ struct SearchView: View {
                 HStack {
                     Spacer()
                     ProgressView()
+                        .padding()
                     Spacer()
                 }
                 .listRowBackground(Color.clear)
@@ -69,6 +88,7 @@ struct SearchView: View {
                 SearchResultRow(result: result)
             }
         }
+        .listStyle(.plain)
     }
     
     private func performSearch() async {
@@ -76,6 +96,8 @@ struct SearchView: View {
         
         isSearching = true
         hasSearched = true
+        searchError = nil
+        
         defer { isSearching = false }
         
         // If it looks like a URL, try to subscribe directly
@@ -84,9 +106,14 @@ struct SearchView: View {
             return
         }
         
-        // TODO: Implement podcast search using iTunes API or similar
-        // For now, just clear results - this would integrate with a search API
-        searchResults = []
+        // Search using iTunes API
+        do {
+            let results = try await searchService.search(query: searchText)
+            searchResults = results.compactMap { $0.toPodcastSearchResult() }
+        } catch {
+            searchError = error.localizedDescription
+            searchResults = []
+        }
     }
     
     private func subscribeToURL() async {
@@ -94,8 +121,9 @@ struct SearchView: View {
             _ = try await syncService.subscribe(to: searchText)
             searchText = ""
             hasSearched = false
+            searchResults = []
         } catch {
-            // Handle error
+            searchError = error.localizedDescription
         }
     }
 }
@@ -108,6 +136,26 @@ struct PodcastSearchResult: Identifiable {
     let author: String?
     let artworkURL: String?
     let feedURL: String
+    let genre: String?
+    let episodeCount: Int?
+    
+    init(
+        id: String,
+        title: String,
+        author: String?,
+        artworkURL: String?,
+        feedURL: String,
+        genre: String? = nil,
+        episodeCount: Int? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.artworkURL = artworkURL
+        self.feedURL = feedURL
+        self.genre = genre
+        self.episodeCount = episodeCount
+    }
 }
 
 struct SearchResultRow: View {
@@ -115,6 +163,7 @@ struct SearchResultRow: View {
     
     @Environment(SyncService.self) private var syncService
     @State private var isSubscribing = false
+    @State private var didSubscribe = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -124,21 +173,46 @@ struct SearchResultRow: View {
                     .resizable()
                     .aspectRatio(1, contentMode: .fill)
             } placeholder: {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(Color.secondary.opacity(0.2))
+                    .overlay {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(.secondary)
+                    }
             }
-            .frame(width: 60, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             
             // Info
             VStack(alignment: .leading, spacing: 4) {
                 Text(result.title)
                     .font(.headline)
+                    .lineLimit(2)
                 
                 if let author = result.author {
                     Text(author)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                
+                HStack(spacing: 6) {
+                    if let genre = result.genre {
+                        Text(genre)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    if let count = result.episodeCount, count > 0 {
+                        if result.genre != nil {
+                            Text("•")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("\(count) episodes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             
@@ -148,19 +222,32 @@ struct SearchResultRow: View {
             Button {
                 Task {
                     isSubscribing = true
-                    _ = try? await syncService.subscribe(to: result.feedURL)
+                    do {
+                        _ = try await syncService.subscribe(to: result.feedURL)
+                        didSubscribe = true
+                    } catch {
+                        // Handle error silently for now
+                    }
                     isSubscribing = false
                 }
             } label: {
                 if isSubscribing {
                     ProgressView()
+                        .frame(width: 28, height: 28)
+                } else if didSubscribe {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.green)
                 } else {
                     Image(systemName: "plus.circle.fill")
                         .font(.title2)
+                        .foregroundStyle(Color.accentColor)
                 }
             }
             .buttonStyle(.plain)
+            .disabled(didSubscribe)
         }
+        .padding(.vertical, 4)
     }
 }
 

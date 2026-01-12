@@ -134,6 +134,8 @@ struct EpisodeRow: View {
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(SyncService.self) private var syncService
     
+    @State private var showingShowNotes = false
+    
     private var isCurrentEpisode: Bool {
         playerService.currentEpisode?.id == episode.id
     }
@@ -215,6 +217,15 @@ struct EpisodeRow: View {
                 
                 Spacer()
                 
+                // Info button for show notes
+                Button {
+                    showingShowNotes = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                
                 // Download button
                 Button {
                     // Download action
@@ -226,6 +237,25 @@ struct EpisodeRow: View {
             }
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                showingShowNotes = true
+            } label: {
+                Label("Show Notes", systemImage: "doc.text")
+            }
+            
+            Button {
+                episode.isPlayed.toggle()
+            } label: {
+                Label(
+                    episode.isPlayed ? "Mark as Unplayed" : "Mark as Played",
+                    systemImage: episode.isPlayed ? "circle" : "checkmark.circle"
+                )
+            }
+        }
+        .sheet(isPresented: $showingShowNotes) {
+            ShowNotesView(episode: episode)
+        }
     }
     
     private var downloadIcon: String {

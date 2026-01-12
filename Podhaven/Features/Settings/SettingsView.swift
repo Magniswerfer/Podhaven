@@ -118,22 +118,29 @@ struct SettingsView: View {
                         .lineLimit(1)
                 }
             }
-            
-            Button {
-                Task {
-                    try? await syncService.performSync()
-                }
-            } label: {
-                HStack {
-                    Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
-                    Spacer()
-                    if syncService.isSyncing {
-                        ProgressView()
-                    }
+        } else {
+            HStack {
+                Text("Last Sync")
+                Spacer()
+                Text("Never")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        
+        Button {
+            Task {
+                try? await syncService.performSync()
+            }
+        } label: {
+            HStack {
+                Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                Spacer()
+                if syncService.isSyncing {
+                    ProgressView()
                 }
             }
-            .disabled(syncService.isSyncing)
         }
+        .disabled(syncService.isSyncing)
     }
 }
 
@@ -142,6 +149,7 @@ struct SettingsView: View {
 struct LoginView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SyncService.self) private var syncService
+    @FocusState private var focusedField: Field?
     
     @State private var serverURL = "https://gpodder.magnus.hk"
     @State private var username = ""
@@ -149,6 +157,10 @@ struct LoginView: View {
     @State private var isLoading = false
     @State private var error: Error?
     @State private var showError = false
+    
+    private enum Field {
+        case serverURL, username, password
+    }
     
     var body: some View {
         Form {
@@ -158,6 +170,9 @@ struct LoginView: View {
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                    .focused($focusedField, equals: .serverURL)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .username }
             } header: {
                 Text("Server")
             } footer: {
@@ -169,13 +184,25 @@ struct LoginView: View {
                     .textContentType(.username)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                    .focused($focusedField, equals: .username)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .password }
                 
                 SecureField("Password", text: $password)
                     .textContentType(.password)
+                    .focused($focusedField, equals: .password)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        focusedField = nil
+                        if !serverURL.isEmpty && !username.isEmpty && !password.isEmpty {
+                            Task { await login() }
+                        }
+                    }
             }
             
             Section {
                 Button {
+                    focusedField = nil
                     Task {
                         await login()
                     }
@@ -193,6 +220,14 @@ struct LoginView: View {
         }
         .navigationTitle("Connect to gpodder")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    focusedField = nil
+                }
+            }
+        }
         .alert("Login Failed", isPresented: $showError) {
             Button("OK") { }
         } message: {
