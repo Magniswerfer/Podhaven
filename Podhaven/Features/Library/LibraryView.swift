@@ -1,6 +1,88 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Continue Listening Card
+
+struct ContinueListeningCard: View {
+    let episode: Episode
+
+    @Environment(AudioPlayerService.self) private var playerService
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Artwork
+            ZStack(alignment: .bottomTrailing) {
+                AsyncImage(url: episode.effectiveArtworkURL.flatMap { URL(string: $0) }) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(1, contentMode: .fill)
+                } placeholder: {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.secondary.opacity(0.2))
+                        .overlay {
+                            Image(systemName: "waveform")
+                                .foregroundStyle(.secondary)
+                        }
+                }
+                .frame(width: 120, height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                // Progress overlay
+                if !episode.isPlayed {
+                    CircularProgressView(progress: episode.progress)
+                        .frame(width: 32, height: 32)
+                        .padding(8)
+                }
+            }
+
+            // Episode info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(episode.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+
+                if let podcastTitle = episode.podcast?.title {
+                    Text(podcastTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                if !episode.isPlayed {
+                    Text("\(Int(episode.progress * 100))% · \(episode.remainingTime?.formattedTime() ?? "") left")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 120, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task {
+                try? await playerService.playEpisode(episode)
+            }
+        }
+    }
+}
+
+// MARK: - Circular Progress View
+
+struct CircularProgressView: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.black.opacity(0.2), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+    }
+}
+
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncService.self) private var syncService
@@ -31,15 +113,29 @@ struct LibraryView: View {
                 }
                 
                 ToolbarItem(placement: .topBarLeading) {
-                    if syncService.isSyncing {
-                        ProgressView()
-                    } else {
-                        Button {
-                            Task {
-                                try? await syncService.performSync()
-                            }
+                    HStack {
+                        NavigationLink {
+                            RecentlyPlayedView()
                         } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Image(systemName: "clock")
+                        }
+
+                        NavigationLink {
+                            ProgressView()
+                        } label: {
+                            Image(systemName: "chart.bar")
+                        }
+
+                        if syncService.isSyncing {
+                            ProgressView()
+                        } else {
+                            Button {
+                                Task {
+                                    try? await syncService.performSync()
+                                }
+                            } label: {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                            }
                         }
                     }
                 }
@@ -68,21 +164,56 @@ struct LibraryView: View {
     
     private var podcastGrid: some View {
         ScrollView {
-            LazyVGrid(columns: [
-                GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 16)
-            ], spacing: 16) {
-                ForEach(podcasts) { podcast in
-                    NavigationLink(value: podcast) {
-                        PodcastGridItem(podcast: podcast)
+            VStack(alignment: .leading, spacing: 24) {
+                // Continue Listening section
+                if !inProgressEpisodes.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Continue Listening")
+                            .font(.title2)
+                            .fontWeight(.bold)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
+                                ForEach(inProgressEpisodes.prefix(5)) { episode in
+                                    ContinueListeningCard(episode: episode)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
                     }
-                    .buttonStyle(.plain)
+                }
+
+                // Podcasts section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Podcasts")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 16)
+                    ], spacing: 16) {
+                        ForEach(podcasts) { podcast in
+                            NavigationLink(value: podcast) {
+                                PodcastGridItem(podcast: podcast)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
                 }
             }
-            .padding()
+            .padding(.vertical)
         }
         .navigationDestination(for: Podcast.self) { podcast in
             PodcastDetailView(podcast: podcast)
         }
+    }
+
+    private var inProgressEpisodes: [Episode] {
+        podcasts
+            .flatMap { $0.episodes }
+            .filter { !$0.isPlayed && $0.playbackPosition > 0 }
+            .sorted { ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast) }
     }
     
     private func refreshAllPodcasts() async {

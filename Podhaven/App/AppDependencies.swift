@@ -18,6 +18,35 @@ final class AppDependencies {
             apiClient: apiClient,
             modelContext: modelContext
         )
+
+        // Connect player service to sync service for automatic progress tracking
+        self.playerService.onPositionUpdate = { [weak self] episode, position in
+            Task { @MainActor [weak self] in
+                do {
+                    try await self?.syncService.recordProgress(
+                        episode: episode,
+                        position: position,
+                        completed: false
+                    )
+                } catch {
+                    print("Failed to record progress: \(error)")
+                }
+            }
+        }
+
+        self.playerService.onPlaybackCompleted = { [weak self] episode in
+            Task { @MainActor [weak self] in
+                do {
+                    try await self?.syncService.recordProgress(
+                        episode: episode,
+                        position: episode.duration ?? 0,
+                        completed: true
+                    )
+                } catch {
+                    print("Failed to record completion: \(error)")
+                }
+            }
+        }
     }
     
     /// For testing/previews with mock dependencies

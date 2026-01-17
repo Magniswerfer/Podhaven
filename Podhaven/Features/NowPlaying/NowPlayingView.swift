@@ -106,9 +106,8 @@ struct NowPlayingView: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(.primary)
                             .frame(width: 36, height: 36)
-                            .glassEffect()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                 }
                 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -136,8 +135,8 @@ struct NowPlayingView: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(.primary)
                             .frame(width: 36, height: 36)
-                            .glassEffect()
                     }
+                    .buttonStyle(.bordered)
                 }
             }
         }
@@ -364,7 +363,7 @@ struct NowPlayingView: View {
         HStack(spacing: 0) {
             Spacer()
             
-            // Skip backward - glass button
+            // Skip backward
             Button {
                 Task {
                     await playerService.skipBackward()
@@ -374,38 +373,27 @@ struct NowPlayingView: View {
                     .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(.primary)
                     .frame(width: 56, height: 56)
-                    .glassEffect()
             }
-            .buttonStyle(ScaleButtonStyle())
+            .buttonStyle(.bordered)
             
             Spacer()
             
-            // Play/Pause - prominent glass button
+            // Play/Pause - prominent button
             Button {
                 playerService.togglePlayPause()
             } label: {
-                ZStack {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 76, height: 76)
-                        .overlay {
-                            Circle()
-                                .strokeBorder(.white.opacity(0.3), lineWidth: 1)
-                        }
-                        .shadow(color: .black.opacity(0.15), radius: 10, y: 5)
-                    
-                    Image(systemName: playerService.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 30, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .offset(x: playerService.isPlaying ? 0 : 2)
-                        .contentTransition(.symbolEffect(.replace))
-                }
+                Image(systemName: playerService.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 76, height: 76)
+                    .offset(x: playerService.isPlaying ? 0 : 2)
+                    .contentTransition(.symbolEffect(.replace))
             }
-            .buttonStyle(ScaleButtonStyle())
+            .buttonStyle(.borderedProminent)
             
             Spacer()
             
-            // Skip forward - glass button
+            // Skip forward
             Button {
                 Task {
                     await playerService.skipForward()
@@ -415,9 +403,8 @@ struct NowPlayingView: View {
                     .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(.primary)
                     .frame(width: 56, height: 56)
-                    .glassEffect()
             }
-            .buttonStyle(ScaleButtonStyle())
+            .buttonStyle(.bordered)
             
             Spacer()
         }
@@ -448,9 +435,8 @@ struct NowPlayingView: View {
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .glassEffect()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
             
             Spacer()
             
@@ -462,9 +448,8 @@ struct NowPlayingView: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.primary)
                     .frame(width: 40, height: 40)
-                    .glassEffect()
             }
-            .buttonStyle(ScaleButtonStyle())
+            .buttonStyle(.bordered)
             
             Spacer()
             
@@ -476,9 +461,8 @@ struct NowPlayingView: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.primary)
                     .frame(width: 40, height: 40)
-                    .glassEffect()
             }
-            .buttonStyle(ScaleButtonStyle())
+            .buttonStyle(.bordered)
         }
     }
     
@@ -641,29 +625,7 @@ struct InlineShowNotesView: UIViewRepresentable {
     }
 }
 
-// MARK: - Scale Button Style
 
-struct ScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.smooth(duration: 0.15), value: configuration.isPressed)
-    }
-}
-
-// MARK: - Glass Effect Modifier
-
-extension View {
-    @ViewBuilder
-    func glassEffect() -> some View {
-        self
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
-            }
-    }
-}
 
 #Preview {
     NowPlayingView()

@@ -24,8 +24,9 @@ final class AudioPlayerService {
     private var rateObservation: NSKeyValueObservation?
     private var artworkImage: UIImage?
 
-    // Callback for saving playback position
+    // Callbacks for progress tracking
     var onPositionUpdate: ((Episode, TimeInterval) async -> Void)?
+    var onPlaybackCompleted: ((Episode) async -> Void)?
 
     // MARK: - Initialization
 
@@ -418,7 +419,9 @@ final class AudioPlayerService {
 
         if let episode = currentEpisode {
             Task {
-                await onPositionUpdate?(episode, 0)
+                // Record completion at the episode's duration
+                await onPlaybackCompleted?(episode)
+                await onPositionUpdate?(episode, episode.duration ?? 0)
             }
         }
         
