@@ -6,6 +6,9 @@ final class Episode {
     /// Unique identifier - combination of podcast feed URL and episode GUID
     @Attribute(.unique) var id: String
     
+    /// Server-side identifier (UUID from the API)
+    var serverEpisodeId: String?
+    
     /// Episode metadata
     var guid: String
     var title: String
@@ -48,7 +51,8 @@ final class Episode {
         fileSize: Int64? = nil,
         episodeNumber: Int? = nil,
         seasonNumber: Int? = nil,
-        artworkURL: String? = nil
+        artworkURL: String? = nil,
+        serverEpisodeId: String? = nil
     ) {
         self.id = "\(podcastFeedURL)|\(guid)"
         self.guid = guid
@@ -70,6 +74,7 @@ final class Episode {
         self.downloadProgress = 0
         self.needsSync = false
         self.lastSyncedAt = nil
+        self.serverEpisodeId = serverEpisodeId
     }
 }
 

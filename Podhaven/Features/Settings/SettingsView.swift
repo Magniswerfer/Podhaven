@@ -20,14 +20,14 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 // Sync Account
-                Section("gpodder Sync") {
+                Section("Podcast Sync") {
                     if let config = serverConfig, config.isAuthenticated {
                         authenticatedView(config: config)
                     } else {
                         NavigationLink {
                             LoginView()
                         } label: {
-                            Label("Connect to gpodder", systemImage: "link")
+                            Label("Connect Account", systemImage: "link")
                         }
                     }
                 }
@@ -85,9 +85,9 @@ struct SettingsView: View {
             }
             
             HStack {
-                Label("Username", systemImage: "person")
+                Label("Email", systemImage: "envelope")
                 Spacer()
-                Text(config.username)
+                Text(config.email)
                     .foregroundStyle(.secondary)
             }
             
@@ -151,15 +151,16 @@ struct LoginView: View {
     @Environment(SyncService.self) private var syncService
     @FocusState private var focusedField: Field?
     
-    @State private var serverURL = "https://gpodder.magnus.hk"
-    @State private var username = ""
+    @State private var serverURL = ""
+    @State private var email = ""
     @State private var password = ""
     @State private var isLoading = false
     @State private var error: Error?
     @State private var showError = false
+    @State private var isRegistering = false
     
     private enum Field {
-        case serverURL, username, password
+        case serverURL, email, password
     }
     
     var body: some View {
@@ -172,53 +173,62 @@ struct LoginView: View {
                     .textInputAutocapitalization(.never)
                     .focused($focusedField, equals: .serverURL)
                     .submitLabel(.next)
-                    .onSubmit { focusedField = .username }
+                    .onSubmit { focusedField = .email }
             } header: {
                 Text("Server")
             } footer: {
-                Text("Enter your gpodder-compatible server URL")
+                Text("Enter your podcast sync server URL")
             }
             
             Section("Credentials") {
-                TextField("Username", text: $username)
-                    .textContentType(.username)
+                TextField("Email", text: $email)
+                    .textContentType(.emailAddress)
+                    .keyboardType(.emailAddress)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
-                    .focused($focusedField, equals: .username)
+                    .focused($focusedField, equals: .email)
                     .submitLabel(.next)
                     .onSubmit { focusedField = .password }
                 
                 SecureField("Password", text: $password)
-                    .textContentType(.password)
+                    .textContentType(isRegistering ? .newPassword : .password)
                     .focused($focusedField, equals: .password)
                     .submitLabel(.done)
                     .onSubmit {
                         focusedField = nil
-                        if !serverURL.isEmpty && !username.isEmpty && !password.isEmpty {
-                            Task { await login() }
+                        if canSubmit {
+                            Task { await submit() }
                         }
                     }
+            }
+            
+            Section {
+                Toggle("Create new account", isOn: $isRegistering)
+            } footer: {
+                if isRegistering {
+                    Text("A new account will be created with this email")
+                }
             }
             
             Section {
                 Button {
                     focusedField = nil
                     Task {
-                        await login()
+                        await submit()
                     }
                 } label: {
                     HStack {
-                        Text("Connect")
+                        Text(isRegistering ? "Register" : "Login")
                         Spacer()
                         if isLoading {
                             ProgressView()
                         }
                     }
                 }
-                .disabled(serverURL.isEmpty || username.isEmpty || password.isEmpty || isLoading)
+                .disabled(!canSubmit || isLoading)
             }
         }
-        .navigationTitle("Connect to gpodder")
+        .navigationTitle(isRegistering ? "Create Account" : "Connect Account")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -228,7 +238,7 @@ struct LoginView: View {
                 }
             }
         }
-        .alert("Login Failed", isPresented: $showError) {
+        .alert(isRegistering ? "Registration Failed" : "Login Failed", isPresented: $showError) {
             Button("OK") { }
         } message: {
             if let error = error {
@@ -237,16 +247,28 @@ struct LoginView: View {
         }
     }
     
-    private func login() async {
+    private var canSubmit: Bool {
+        !serverURL.isEmpty && !email.isEmpty && !password.isEmpty
+    }
+    
+    private func submit() async {
         isLoading = true
         defer { isLoading = false }
         
         do {
-            try await syncService.login(
-                serverURL: serverURL,
-                username: username,
-                password: password
-            )
+            if isRegistering {
+                try await syncService.register(
+                    serverURL: serverURL,
+                    email: email,
+                    password: password
+                )
+            } else {
+                try await syncService.login(
+                    serverURL: serverURL,
+                    email: email,
+                    password: password
+                )
+            }
             dismiss()
         } catch {
             self.error = error

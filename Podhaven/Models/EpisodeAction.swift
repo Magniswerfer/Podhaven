@@ -1,19 +1,18 @@
 import Foundation
 import SwiftData
 
-/// Represents an episode action for gpodder sync
+/// Represents a pending progress update for sync
 /// These are queued locally and synced with the server
 @Model
 final class EpisodeAction {
     @Attribute(.unique) var id: String
     
-    var podcastURL: String
-    var episodeURL: String
-    var action: ActionType
+    var episodeId: String
+    var serverEpisodeId: String?
     var timestamp: Date
-    var position: TimeInterval?
-    var total: TimeInterval?
-    var started: TimeInterval?
+    var positionSeconds: Int
+    var durationSeconds: Int
+    var completed: Bool
     
     /// Sync state
     var isSynced: Bool
@@ -21,72 +20,37 @@ final class EpisodeAction {
     var lastSyncError: String?
     
     init(
-        podcastURL: String,
-        episodeURL: String,
-        action: ActionType,
-        timestamp: Date = .now,
-        position: TimeInterval? = nil,
-        total: TimeInterval? = nil,
-        started: TimeInterval? = nil
+        episodeId: String,
+        serverEpisodeId: String?,
+        positionSeconds: Int,
+        durationSeconds: Int,
+        completed: Bool,
+        timestamp: Date = .now
     ) {
         self.id = UUID().uuidString
-        self.podcastURL = podcastURL
-        self.episodeURL = episodeURL
-        self.action = action
+        self.episodeId = episodeId
+        self.serverEpisodeId = serverEpisodeId
+        self.positionSeconds = positionSeconds
+        self.durationSeconds = durationSeconds
+        self.completed = completed
         self.timestamp = timestamp
-        self.position = position
-        self.total = total
-        self.started = started
         self.isSynced = false
         self.syncAttempts = 0
         self.lastSyncError = nil
     }
 }
 
-// MARK: - Action Type
-
-enum ActionType: String, Codable {
-    case play
-    case download
-    case delete
-    case new
-}
-
-// MARK: - API Conversion
+// MARK: - Conversion to API model
 
 extension EpisodeAction {
-    /// Convert to API request format
-    var apiRepresentation: [String: Any] {
-        var dict: [String: Any] = [
-            "podcast": podcastURL,
-            "episode": episodeURL,
-            "action": action.rawValue,
-            "timestamp": ISO8601DateFormatter().string(from: timestamp)
-        ]
-        
-        if let position = position {
-            dict["position"] = Int(position)
-        }
-        if let total = total {
-            dict["total"] = Int(total)
-        }
-        if let started = started {
-            dict["started"] = Int(started)
-        }
-        
-        return dict
-    }
-    
-    /// Create from API response
-    static func from(apiResponse: GpodderEpisodeAction, modelContext: ModelContext) -> EpisodeAction {
-        EpisodeAction(
-            podcastURL: apiResponse.podcast,
-            episodeURL: apiResponse.episode,
-            action: ActionType(rawValue: apiResponse.action) ?? .play,
-            timestamp: apiResponse.timestamp ?? .now,
-            position: apiResponse.position.map { TimeInterval($0) },
-            total: apiResponse.total.map { TimeInterval($0) },
-            started: apiResponse.started.map { TimeInterval($0) }
+    /// Convert to bulk progress update format
+    func toBulkProgressUpdate() -> BulkProgressUpdate? {
+        guard let serverEpisodeId = serverEpisodeId else { return nil }
+        return BulkProgressUpdate(
+            episodeId: serverEpisodeId,
+            positionSeconds: positionSeconds,
+            durationSeconds: durationSeconds,
+            completed: completed
         )
     }
 }

@@ -1,18 +1,14 @@
 import Foundation
 import SwiftData
 
-/// Tracks the overall sync state with the gpodder server
+/// Tracks the overall sync state with the podcast sync server
 @Model
 final class SyncState {
     @Attribute(.unique) var id: String
     
     /// Last successful sync timestamps
     var lastSubscriptionSync: Date?
-    var lastEpisodeActionSync: Date?
-    
-    /// Sync timestamps returned by server (used for incremental sync)
-    var subscriptionTimestamp: Int64?
-    var episodeActionTimestamp: Int64?
+    var lastProgressSync: Date?
     
     /// Sync status
     var isSyncing: Bool
@@ -26,9 +22,7 @@ final class SyncState {
     init() {
         self.id = "sync-state"
         self.lastSubscriptionSync = nil
-        self.lastEpisodeActionSync = nil
-        self.subscriptionTimestamp = nil
-        self.episodeActionTimestamp = nil
+        self.lastProgressSync = nil
         self.isSyncing = false
         self.lastSyncError = nil
         self.lastSyncAttempt = nil
@@ -45,7 +39,7 @@ extension SyncState {
     }
     
     var lastSyncDescription: String {
-        guard let lastSync = [lastSubscriptionSync, lastEpisodeActionSync]
+        guard let lastSync = [lastSubscriptionSync, lastProgressSync]
             .compactMap({ $0 })
             .max() else {
             return "Never synced"

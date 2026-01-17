@@ -6,6 +6,9 @@ final class Podcast {
     /// Unique identifier - the RSS feed URL
     @Attribute(.unique) var feedURL: String
     
+    /// Server-side identifier (UUID from the API)
+    var serverPodcastId: String?
+    
     /// Podcast metadata
     var title: String
     var author: String?
@@ -38,7 +41,8 @@ final class Podcast {
         language: String? = nil,
         categories: [String] = [],
         dateAdded: Date = .now,
-        isSubscribed: Bool = true
+        isSubscribed: Bool = true,
+        serverPodcastId: String? = nil
     ) {
         self.feedURL = feedURL
         self.title = title
@@ -54,6 +58,7 @@ final class Podcast {
         self.needsSync = true
         self.lastSyncedAt = nil
         self.lastUpdated = nil
+        self.serverPodcastId = serverPodcastId
     }
 }
 

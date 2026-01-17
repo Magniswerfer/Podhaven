@@ -1,11 +1,11 @@
 # Podhaven
 
-A native iOS podcast app with gpodder sync support. The first iOS app to support gpodder synchronization for podcast subscriptions and listening progress.
+A native iOS podcast app with podcast sync support. Sync your subscriptions and listening progress across devices with a self-hosted podcast sync server.
 
 ## Features
 
 - 🎧 **Podcast Management** - Subscribe via RSS URL or search
-- 🔄 **gpodder Sync** - Sync subscriptions and listening progress with any gpodder-compatible server
+- 🔄 **Podcast Sync** - Sync subscriptions and listening progress with your self-hosted server
 - 📥 **Offline Downloads** - Download episodes for offline listening
 - 🎛️ **Background Playback** - Lock screen controls and AirPlay support
 - ⚡ **Native Performance** - Built with SwiftUI and Swift Concurrency
@@ -43,10 +43,11 @@ A native iOS podcast app with gpodder sync support. The first iOS app to support
    │   └── ServerConfiguration.swift
    ├── Services/
    │   ├── Network/
-   │   │   ├── GpodderAPIClient.swift
-   │   │   ├── GpodderAPIModels.swift
-   │   │   ├── GpodderAPIError.swift
-   │   │   └── MockGpodderAPIClient.swift
+   │   │   ├── PodcastServiceAPIClient.swift
+   │   │   ├── PodcastServiceAPIModels.swift
+   │   │   ├── PodcastServiceAPIError.swift
+   │   │   ├── MockPodcastServiceAPIClient.swift
+   │   │   └── ITunesSearchService.swift
    │   ├── RSS/
    │   │   └── RSSParser.swift
    │   ├── Player/
@@ -90,7 +91,7 @@ A native iOS podcast app with gpodder sync support. The first iOS app to support
 - RSS feed parser for podcast metadata
 
 ### Services
-- `GpodderAPIClient` - gpodder server communication
+- `PodcastServiceAPIClient` - Podcast sync server communication
 - `AudioPlayerService` - AVFoundation-based playback
 - `SyncService` - Coordinates sync operations
 - `DownloadService` - Background downloads
@@ -100,28 +101,52 @@ A native iOS podcast app with gpodder sync support. The first iOS app to support
 - Tab-based navigation (Library, Search, Settings)
 - Mini player with full-screen Now Playing view
 
-## gpodder API Integration
+## Podcast Sync API Integration
 
-The app supports any gpodder-compatible server:
+The app syncs with a self-hosted podcast sync server using the following endpoints:
 
+### Authentication
 ```
-POST /api/2/auth/{username}.json     - Authentication
-GET  /api/2/subscriptions/{username}.json  - Get subscriptions
-POST /api/2/subscriptions/{username}.json  - Update subscriptions
-GET  /api/2/episodes/{username}.json       - Get episode actions
-POST /api/2/episodes/{username}.json       - Upload episode actions
+POST /api/auth/register  - Create new account
+POST /api/auth/login     - Login and get API key
 ```
 
-Default server: `https://gpodder.magnus.hk` (configurable in Settings)
+### Subscriptions
+```
+GET    /api/podcasts           - Get subscribed podcasts
+POST   /api/podcasts/subscribe - Subscribe to a podcast
+DELETE /api/podcasts/{id}      - Unsubscribe from a podcast
+GET    /api/podcasts/search    - Search for podcasts
+```
+
+### Episodes & Progress
+```
+GET /api/episodes           - Get episodes with pagination
+GET /api/progress           - Get all listening progress
+PUT /api/progress/{id}      - Update progress for an episode
+POST /api/progress          - Bulk update progress
+```
+
+Authentication uses Bearer token (API key) in the Authorization header:
+```
+Authorization: Bearer <api_key>
+```
 
 ## Testing
 
 The project uses protocol-oriented design for easy testing:
 
 ```swift
-// Use MockGpodderAPIClient in tests
-let mockClient = MockGpodderAPIClient()
-mockClient.mockSubscriptions = ["https://example.com/feed.xml"]
+// Use MockPodcastServiceAPIClient in tests
+let mockClient = MockPodcastServiceAPIClient()
+mockClient.mockSubscriptions = [
+    SubscribedPodcast(
+        id: "uuid",
+        title: "Test Podcast",
+        feedUrl: "https://example.com/feed.xml",
+        // ...
+    )
+]
 
 let syncService = SyncService(
     apiClient: mockClient,
