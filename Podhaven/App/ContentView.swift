@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedTab: Tab = .library
     @Environment(AudioPlayerService.self) private var playerService
-    
+
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
@@ -12,20 +12,26 @@ struct ContentView: View {
                     .tabItem {
                         Label("Library", systemImage: "books.vertical")
                     }
-                
+
+                QueuePlaylistsView()
+                    .tag(Tab.queue)
+                    .tabItem {
+                        Label("Queue", systemImage: "list.bullet")
+                    }
+
                 SearchView()
                     .tag(Tab.search)
                     .tabItem {
                         Label("Search", systemImage: "magnifyingglass")
                     }
-                
+
                 SettingsView()
                     .tag(Tab.settings)
                     .tabItem {
                         Label("Settings", systemImage: "gear")
                     }
             }
-            
+
             // Mini player shown when something is playing (but not on Settings tab)
             if playerService.currentEpisode != nil && selectedTab != .settings {
                 MiniPlayerView()
@@ -37,6 +43,7 @@ struct ContentView: View {
 
 enum Tab: Hashable {
     case library
+    case queue
     case search
     case settings
 }

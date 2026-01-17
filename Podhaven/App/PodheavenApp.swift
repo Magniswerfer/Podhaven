@@ -13,7 +13,10 @@ struct PodheavenApp: App {
                 Episode.self,
                 EpisodeAction.self,
                 SyncState.self,
-                ServerConfiguration.self
+                ServerConfiguration.self,
+                QueueItem.self,
+                Playlist.self,
+                PlaylistItem.self
             ])
             let modelConfiguration = ModelConfiguration(
                 schema: schema,

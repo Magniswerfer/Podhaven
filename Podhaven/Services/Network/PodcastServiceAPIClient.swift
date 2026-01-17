@@ -86,6 +86,104 @@ protocol PodcastServiceAPIClientProtocol: Sendable {
         apiKey: String,
         updates: [BulkProgressUpdate]
     ) async throws -> BulkProgressUpdateResponse
+
+    /// Get listening queue
+    func getQueue(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> QueueResponse
+
+    /// Add episode to queue
+    func addToQueue(
+        serverURL: String,
+        apiKey: String,
+        episodeId: String
+    ) async throws -> AddToQueueResponse
+
+    /// Reorder queue items
+    func reorderQueue(
+        serverURL: String,
+        apiKey: String,
+        items: [QueueReorderItem]
+    ) async throws -> QueueResponse
+
+    /// Clear queue (optionally preserve current episode)
+    func clearQueue(
+        serverURL: String,
+        apiKey: String,
+        currentEpisodeId: String?
+    ) async throws -> QueueResponse
+
+    /// Remove item from queue
+    func removeFromQueue(
+        serverURL: String,
+        apiKey: String,
+        queueItemId: String
+    ) async throws -> UnsubscribeResponse
+
+    /// Get all playlists
+    func getPlaylists(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> PlaylistsResponse
+
+    /// Create playlist
+    func createPlaylist(
+        serverURL: String,
+        apiKey: String,
+        name: String,
+        description: String?
+    ) async throws -> CreatePlaylistResponse
+
+    /// Get playlist with items
+    func getPlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String
+    ) async throws -> PlaylistDetailResponse
+
+    /// Update playlist
+    func updatePlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        name: String?,
+        description: String?
+    ) async throws -> APIPlaylist
+
+    /// Delete playlist
+    func deletePlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String
+    ) async throws -> UnsubscribeResponse
+
+    /// Add item to playlist
+    func addToPlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        podcastId: String?,
+        episodeId: String?,
+        position: Int?
+    ) async throws -> PlaylistItem
+
+    /// Update playlist item position
+    func updatePlaylistItem(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        itemId: String,
+        position: Int
+    ) async throws
+
+    /// Remove item from playlist
+    func removeFromPlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        itemId: String
+    ) async throws -> UnsubscribeResponse
 }
 
 // MARK: - Implementation
@@ -412,7 +510,308 @@ final class PodcastServiceAPIClient: PodcastServiceAPIClientProtocol, Sendable {
         
         return try decoder.decode(BulkProgressUpdateResponse.self, from: data)
     }
-    
+
+    // MARK: - Queue
+
+    func getQueue(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> QueueResponse {
+        guard let url = URL(string: "\(serverURL)/api/queue") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(QueueResponse.self, from: data)
+    }
+
+    func addToQueue(
+        serverURL: String,
+        apiKey: String,
+        episodeId: String
+    ) async throws -> AddToQueueResponse {
+        guard let url = URL(string: "\(serverURL)/api/queue") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = AddToQueueRequest(episodeId: episodeId)
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(AddToQueueResponse.self, from: data)
+    }
+
+    func reorderQueue(
+        serverURL: String,
+        apiKey: String,
+        items: [QueueReorderItem]
+    ) async throws -> QueueResponse {
+        guard let url = URL(string: "\(serverURL)/api/queue") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = QueueReorderRequest(items: items)
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(QueueResponse.self, from: data)
+    }
+
+    func clearQueue(
+        serverURL: String,
+        apiKey: String,
+        currentEpisodeId: String?
+    ) async throws -> QueueResponse {
+        var components = URLComponents(string: "\(serverURL)/api/queue")
+        if let currentEpisodeId = currentEpisodeId {
+            components?.queryItems = [URLQueryItem(name: "currentEpisodeId", value: currentEpisodeId)]
+        }
+
+        guard let url = components?.url else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(QueueResponse.self, from: data)
+    }
+
+    func removeFromQueue(
+        serverURL: String,
+        apiKey: String,
+        queueItemId: String
+    ) async throws -> UnsubscribeResponse {
+        guard let url = URL(string: "\(serverURL)/api/queue/\(queueItemId)") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(UnsubscribeResponse.self, from: data)
+    }
+
+    // MARK: - Playlists
+
+    func getPlaylists(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> PlaylistsResponse {
+        guard let url = URL(string: "\(serverURL)/api/playlists") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(PlaylistsResponse.self, from: data)
+    }
+
+    func createPlaylist(
+        serverURL: String,
+        apiKey: String,
+        name: String,
+        description: String?
+    ) async throws -> CreatePlaylistResponse {
+        guard let url = URL(string: "\(serverURL)/api/playlists") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = CreatePlaylistRequest(name: name, description: description)
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(CreatePlaylistResponse.self, from: data)
+    }
+
+    func getPlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String
+    ) async throws -> PlaylistDetailResponse {
+        guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(PlaylistDetailResponse.self, from: data)
+    }
+
+    func updatePlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        name: String?,
+        description: String?
+    ) async throws -> APIPlaylist {
+        guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = UpdatePlaylistRequest(name: name, description: description)
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(APIPlaylist.self, from: data)
+    }
+
+    func deletePlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String
+    ) async throws -> UnsubscribeResponse {
+        guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(UnsubscribeResponse.self, from: data)
+    }
+
+    func addToPlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        podcastId: String?,
+        episodeId: String?,
+        position: Int?
+    ) async throws -> PlaylistItem {
+        guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)/items") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = AddToPlaylistRequest(podcastId: podcastId, episodeId: episodeId, position: position)
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(PlaylistItem.self, from: data)
+    }
+
+    func updatePlaylistItem(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        itemId: String,
+        position: Int
+    ) async throws {
+        guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)/items/\(itemId)") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = UpdatePlaylistItemRequest(position: position)
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+    }
+
+    func removeFromPlaylist(
+        serverURL: String,
+        apiKey: String,
+        playlistId: String,
+        itemId: String
+    ) async throws -> UnsubscribeResponse {
+        guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)/items/\(itemId)") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(UnsubscribeResponse.self, from: data)
+    }
+
     // MARK: - Private Helpers
     
     private func validateResponse(_ response: URLResponse, data: Data) throws {

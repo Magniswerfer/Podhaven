@@ -232,6 +232,84 @@ struct AddToQueueResponse: Codable, Sendable {
     let queue: [QueueItem]
 }
 
+struct QueueReorderItem: Codable, Sendable {
+    let id: String
+    let position: Int
+}
+
+struct QueueReorderRequest: Codable, Sendable {
+    let items: [QueueReorderItem]
+}
+
+// MARK: - Playlists
+
+struct PlaylistsResponse: Codable, Sendable {
+    let playlists: [APIPlaylist]
+}
+
+struct APIPlaylist: Codable, Sendable {
+    let id: String
+    let name: String
+    let description: String?
+    let createdAt: Date
+    let updatedAt: Date
+    let _count: PlaylistCount?
+}
+
+struct PlaylistCount: Codable, Sendable {
+    let items: Int
+}
+
+struct CreatePlaylistRequest: Codable, Sendable {
+    let name: String
+    let description: String?
+}
+
+struct UpdatePlaylistRequest: Codable, Sendable {
+    let name: String?
+    let description: String?
+}
+
+struct CreatePlaylistResponse: Codable, Sendable {
+    let playlist: APIPlaylist
+}
+
+struct PlaylistDetailResponse: Codable, Sendable {
+    let playlist: APIPlaylistWithItems
+}
+
+struct APIPlaylistWithItems: Codable, Sendable {
+    let id: String
+    let name: String
+    let description: String?
+    let createdAt: Date
+    let updatedAt: Date
+    let items: [PlaylistItem]
+}
+
+struct PlaylistItem: Codable, Sendable {
+    let id: String
+    let position: Int
+    let podcast: APIPodcastBasic?
+    let episode: PlaylistEpisode?
+}
+
+struct PlaylistEpisode: Codable, Sendable {
+    let id: String
+    let title: String
+    let podcast: APIPodcastBasic?
+}
+
+struct AddToPlaylistRequest: Codable, Sendable {
+    let podcastId: String?
+    let episodeId: String?
+    let position: Int?
+}
+
+struct UpdatePlaylistItemRequest: Codable, Sendable {
+    let position: Int
+}
+
 // MARK: - Stats
 
 struct DashboardStatsResponse: Codable, Sendable {

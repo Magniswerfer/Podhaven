@@ -219,7 +219,7 @@ final class SyncService {
                 podcast.needsSync = false
             } catch {
                 print("SyncService: Failed to unsubscribe on server: \(error)")
-                podcast.needsSync = true
+        podcast.needsSync = true
             }
         }
         
@@ -233,7 +233,7 @@ final class SyncService {
         completed: Bool = false
     ) async throws {
         // Update local state
-        episode.playbackPosition = position
+            episode.playbackPosition = position
         episode.lastPlayedAt = .now
         episode.needsSync = true
         
@@ -431,11 +431,11 @@ final class SyncService {
                     feedURL: podcast.feedURL
                 )
                 podcast.serverPodcastId = subscribeResponse.podcast.id
-                podcast.needsSync = false
+                    podcast.needsSync = false
                 print("SyncService: Successfully uploaded subscription")
             } catch PodcastServiceAPIError.conflict {
                 // Already subscribed on server, just mark as synced
-                podcast.needsSync = false
+                    podcast.needsSync = false
                 print("SyncService: Podcast already on server, marked as synced")
             } catch {
                 print("SyncService: Failed to upload subscription: \(error)")
@@ -544,19 +544,19 @@ final class SyncService {
                 print("SyncService: Uploading \(updates.count) progress updates to server")
                 do {
                     let bulkResponse = try await apiClient.bulkUpdateProgress(
-                        serverURL: config.serverURL,
+                    serverURL: config.serverURL,
                         apiKey: apiKey,
                         updates: updates
-                    )
-                    
+                )
+
                     // Mark successful uploads as synced
                     for result in bulkResponse.results where result.success {
                         if let action = pendingActions.first(where: { $0.serverEpisodeId == result.episodeId }) {
-                            action.isSynced = true
-                        }
+                    action.isSynced = true
+                }
                     }
                     print("SyncService: Progress upload completed")
-                } catch {
+            } catch {
                     print("SyncService: Failed to upload progress: \(error)")
                 }
             }
@@ -630,6 +630,484 @@ final class SyncService {
         
         try modelContext.save()
     }
+
+    // MARK: - Queue Management
+
+    /// Get the user's listening queue from server and sync with local
+    func getQueue() async throws -> [QueueItem] {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            throw PodcastServiceAPIError.noAPIKey
+        }
+
+        let response = try await apiClient.getQueue(serverURL: config.serverURL, apiKey: apiKey)
+
+        // Clear existing local queue
+        let localDescriptor = FetchDescriptor<QueueItem>()
+        let localQueue = try modelContext.fetch(localDescriptor)
+        for item in localQueue {
+            modelContext.delete(item)
+        }
+
+        // Create local queue items from server response
+        var localQueueItems: [QueueItem] = []
+        for apiItem in response.queue {
+            let queueItem = QueueItem(
+                id: UUID().uuidString,
+                position: apiItem.position,
+                episodeId: apiItem.episodeId,
+                serverId: apiItem.id
+            )
+
+            // Try to link to local episode if we have it
+            if let episodeId = apiItem.episodeId {
+                let episodeDescriptor = FetchDescriptor<Episode>(
+                    predicate: #Predicate { $0.serverEpisodeId == episodeId }
+                )
+                if let episode = try modelContext.fetch(episodeDescriptor).first {
+                    queueItem.episode = episode
+                }
+            }
+
+            queueItem.needsSync = false
+            queueItem.lastSyncedAt = .now
+
+            modelContext.insert(queueItem)
+            localQueueItems.append(queueItem)
+        }
+
+        try modelContext.save()
+        return localQueueItems.sorted { $0.position < $1.position }
+    }
+
+    /// Add an episode to the queue
+    func addToQueue(episode: Episode) async throws {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            // Store locally if not authenticated
+            let queueItem = QueueItem(
+                position: getNextQueuePosition(),
+                episodeId: episode.id
+            )
+            queueItem.episode = episode
+            modelContext.insert(queueItem)
+            try modelContext.save()
+            return
+        }
+
+        guard let serverEpisodeId = episode.serverEpisodeId else {
+            throw PodcastServiceAPIError.validationError(details: "Episode not synced with server")
+        }
+
+        let response = try await apiClient.addToQueue(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            episodeId: serverEpisodeId
+        )
+
+        // Create local queue item
+        let queueItem = QueueItem(
+            id: UUID().uuidString,
+            position: response.queueItem.position,
+            episodeId: episode.id,
+            serverId: response.queueItem.id
+        )
+        queueItem.episode = episode
+        queueItem.needsSync = false
+        queueItem.lastSyncedAt = .now
+
+        modelContext.insert(queueItem)
+        try modelContext.save()
+    }
+
+    /// Reorder queue items
+    func reorderQueue(items: [QueueItem]) async throws {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            // Update local positions only
+            for (index, item) in items.enumerated() {
+                item.position = index
+            }
+            try modelContext.save()
+            return
+        }
+
+        let reorderItems = items.enumerated().map { index, item in
+            QueueReorderItem(id: item.serverId ?? item.id, position: index)
+        }
+
+        _ = try await apiClient.reorderQueue(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            items: reorderItems
+        )
+
+        // Update local positions
+        for (index, item) in items.enumerated() {
+            item.position = index
+            item.lastSyncedAt = .now
+        }
+
+        try modelContext.save()
+    }
+
+    /// Clear the queue
+    func clearQueue(preserveCurrentEpisode: Episode? = nil) async throws {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            // Clear local queue
+            let descriptor = FetchDescriptor<QueueItem>()
+            let items = try modelContext.fetch(descriptor)
+            for item in items {
+                if preserveCurrentEpisode == nil || item.episode?.id != preserveCurrentEpisode?.id {
+                    modelContext.delete(item)
+                }
+            }
+            try modelContext.save()
+            return
+        }
+
+        let currentEpisodeId = preserveCurrentEpisode?.serverEpisodeId
+
+        _ = try await apiClient.clearQueue(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            currentEpisodeId: currentEpisodeId
+        )
+
+        // Update local queue
+        let descriptor = FetchDescriptor<QueueItem>()
+        let items = try modelContext.fetch(descriptor)
+        for item in items {
+            if currentEpisodeId == nil || item.episode?.serverEpisodeId != currentEpisodeId {
+                modelContext.delete(item)
+            } else {
+                item.lastSyncedAt = .now
+            }
+        }
+
+        try modelContext.save()
+    }
+
+    /// Remove an item from the queue
+    func removeFromQueue(queueItem: QueueItem) async throws {
+        let config = try getServerConfiguration()
+        if config.isAuthenticated, let apiKey = config.apiKey, let serverId = queueItem.serverId {
+            _ = try await apiClient.removeFromQueue(
+                serverURL: config.serverURL,
+                apiKey: apiKey,
+                queueItemId: serverId
+            )
+        }
+
+        modelContext.delete(queueItem)
+        try modelContext.save()
+    }
+
+    // MARK: - Playlist Management
+
+    /// Get all playlists from server and sync with local
+    func getPlaylists() async throws -> [Playlist] {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            // Return local playlists only
+            let descriptor = FetchDescriptor<Playlist>()
+            return try modelContext.fetch(descriptor)
+        }
+
+        let response = try await apiClient.getPlaylists(serverURL: config.serverURL, apiKey: apiKey)
+
+        // Update or create local playlists
+        var localPlaylists: [Playlist] = []
+        for apiPlaylist in response.playlists {
+            let playlist = try await syncPlaylistFromServer(apiPlaylist)
+            localPlaylists.append(playlist)
+        }
+
+        return localPlaylists
+    }
+
+    /// Create a new playlist
+    func createPlaylist(name: String, description: String? = nil) async throws -> Playlist {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            // Create local playlist only
+            let playlist = Playlist(name: name, descriptionText: description)
+            modelContext.insert(playlist)
+            try modelContext.save()
+            return playlist
+        }
+
+        let response = try await apiClient.createPlaylist(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            name: name,
+            description: description
+        )
+
+        // Create local playlist
+        let playlist = Playlist(
+            serverId: response.playlist.id,
+            name: response.playlist.name,
+            descriptionText: response.playlist.description,
+            createdAt: response.playlist.createdAt,
+            updatedAt: response.playlist.updatedAt
+        )
+        playlist.needsSync = false
+        playlist.lastSyncedAt = .now
+
+        modelContext.insert(playlist)
+        try modelContext.save()
+
+        return playlist
+    }
+
+    /// Get a specific playlist with its items
+    func getPlaylist(id: String) async throws -> Playlist {
+        let descriptor = FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.id == id }
+        )
+
+        guard let playlist = try modelContext.fetch(descriptor).first else {
+            throw PodcastServiceAPIError.notFound
+        }
+
+        let config = try getServerConfiguration()
+        if config.isAuthenticated, let apiKey = config.apiKey, let serverId = playlist.serverId {
+            let response = try await apiClient.getPlaylist(
+                serverURL: config.serverURL,
+                apiKey: apiKey,
+                playlistId: serverId
+            )
+
+            // Update local items
+            try await syncPlaylistItemsFromServer(playlist, items: response.playlist.items)
+            playlist.lastSyncedAt = .now
+            try modelContext.save()
+        }
+
+        return playlist
+    }
+
+    /// Update a playlist
+    func updatePlaylist(_ playlist: Playlist, name: String? = nil, description: String? = nil) async throws {
+        let config = try getServerConfiguration()
+        if config.isAuthenticated, let apiKey = config.apiKey, let serverId = playlist.serverId {
+            _ = try await apiClient.updatePlaylist(
+                serverURL: config.serverURL,
+                apiKey: apiKey,
+                playlistId: serverId,
+                name: name,
+                description: description
+            )
+        }
+
+        if let name = name {
+            playlist.name = name
+        }
+        if let description = description {
+            playlist.descriptionText = description
+        }
+        playlist.updatedAt = .now
+        playlist.lastSyncedAt = .now
+
+        try modelContext.save()
+    }
+
+    /// Delete a playlist
+    func deletePlaylist(_ playlist: Playlist) async throws {
+        let config = try getServerConfiguration()
+        if config.isAuthenticated, let apiKey = config.apiKey, let serverId = playlist.serverId {
+            _ = try await apiClient.deletePlaylist(
+                serverURL: config.serverURL,
+                apiKey: apiKey,
+                playlistId: serverId
+            )
+        }
+
+        modelContext.delete(playlist)
+        try modelContext.save()
+    }
+
+    /// Add an item to a playlist
+    func addToPlaylist(_ playlist: Playlist, podcast: Podcast? = nil, episode: Episode? = nil) async throws {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey, let serverPlaylistId = playlist.serverId else {
+            // Create local item only
+            let position = playlist.items.count
+            let item = PlaylistItem(
+                position: position,
+                podcastId: podcast?.feedURL,
+                episodeId: episode?.id
+            )
+            item.podcast = podcast
+            item.episode = episode
+            item.playlist = playlist
+            modelContext.insert(item)
+            try modelContext.save()
+            return
+        }
+
+        let serverPodcastId = podcast?.serverPodcastId
+        let serverEpisodeId = episode?.serverEpisodeId
+
+        guard serverPodcastId != nil || serverEpisodeId != nil else {
+            throw PodcastServiceAPIError.validationError(details: "Item not synced with server")
+        }
+
+        let response = try await apiClient.addToPlaylist(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            playlistId: serverPlaylistId,
+            podcastId: serverPodcastId,
+            episodeId: serverEpisodeId,
+            position: nil
+        )
+
+        // Create local item
+        let position = playlist.items.count
+        let item = PlaylistItem(
+            serverId: response.id,
+            position: position,
+            podcastId: podcast?.feedURL,
+            episodeId: episode?.id
+        )
+        item.podcast = podcast
+        item.episode = episode
+        item.playlist = playlist
+        item.needsSync = false
+        item.lastSyncedAt = .now
+
+        modelContext.insert(item)
+        try modelContext.save()
+    }
+
+    /// Remove an item from a playlist
+    func removeFromPlaylist(_ playlist: Playlist, item: PlaylistItem) async throws {
+        let config = try getServerConfiguration()
+        if config.isAuthenticated,
+           let apiKey = config.apiKey,
+           let serverPlaylistId = playlist.serverId,
+           let serverItemId = item.serverId {
+            _ = try await apiClient.removeFromPlaylist(
+                serverURL: config.serverURL,
+                apiKey: apiKey,
+                playlistId: serverPlaylistId,
+                itemId: serverItemId
+            )
+        }
+
+        modelContext.delete(item)
+
+        // Reorder remaining items
+        let remainingItems = playlist.items.sorted { $0.position < $1.position }
+        for (index, remainingItem) in remainingItems.enumerated() {
+            remainingItem.position = index
+        }
+
+        try modelContext.save()
+    }
+
+    /// Reorder playlist items
+    func reorderPlaylistItems(_ playlist: Playlist, items: [PlaylistItem]) async throws {
+        // Update local positions
+        for (index, item) in items.enumerated() {
+            item.position = index
+        }
+
+        let config = try getServerConfiguration()
+        if config.isAuthenticated, let apiKey = config.apiKey {
+            // Update positions on server
+            for item in items where item.serverId != nil {
+                try await apiClient.updatePlaylistItem(
+                    serverURL: config.serverURL,
+                    apiKey: apiKey,
+                    playlistId: playlist.serverId!,
+                    itemId: item.serverId!,
+                    position: item.position
+                )
+            }
+        }
+
+        try modelContext.save()
+    }
+
+    // MARK: - Private Helpers
+
+    private func getNextQueuePosition() -> Int {
+        let descriptor = FetchDescriptor<QueueItem>(
+            sortBy: [SortDescriptor(\.position, order: .reverse)]
+        )
+        let items = try? modelContext.fetch(descriptor)
+        return (items?.first?.position ?? -1) + 1
+    }
+
+    private func syncPlaylistFromServer(_ apiPlaylist: APIPlaylist) async throws -> Playlist {
+        let descriptor = FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.serverId == apiPlaylist.id }
+        )
+
+        if let existingPlaylist = try modelContext.fetch(descriptor).first {
+            // Update existing playlist
+            existingPlaylist.name = apiPlaylist.name
+            existingPlaylist.descriptionText = apiPlaylist.description
+            existingPlaylist.updatedAt = apiPlaylist.updatedAt
+            existingPlaylist.needsSync = false
+            existingPlaylist.lastSyncedAt = .now
+            return existingPlaylist
+        } else {
+            // Create new playlist
+            let playlist = Playlist(
+                serverId: apiPlaylist.id,
+                name: apiPlaylist.name,
+                descriptionText: apiPlaylist.description,
+                createdAt: apiPlaylist.createdAt,
+                updatedAt: apiPlaylist.updatedAt
+            )
+            playlist.needsSync = false
+            playlist.lastSyncedAt = .now
+            modelContext.insert(playlist)
+            return playlist
+        }
+    }
+
+    private func syncPlaylistItemsFromServer(_ playlist: Playlist, items: [PlaylistItem]) async throws {
+        // Clear existing items
+        for item in playlist.items {
+            modelContext.delete(item)
+        }
+
+        // Add new items
+        for apiItem in items {
+            let item = PlaylistItem(
+                serverId: apiItem.id,
+                position: apiItem.position,
+                podcastId: apiItem.podcast?.id,
+                episodeId: apiItem.episode?.id
+            )
+
+            // Try to link to local podcast/episode
+            if let podcastId = apiItem.podcast?.id {
+                let podcastDescriptor = FetchDescriptor<Podcast>(
+                    predicate: #Predicate { $0.serverPodcastId == podcastId }
+                )
+                item.podcast = try modelContext.fetch(podcastDescriptor).first
+            }
+
+            if let episodeId = apiItem.episode?.id {
+                let episodeDescriptor = FetchDescriptor<Episode>(
+                    predicate: #Predicate { $0.serverEpisodeId == episodeId }
+                )
+                item.episode = try modelContext.fetch(episodeDescriptor).first
+            }
+
+            item.playlist = playlist
+            item.needsSync = false
+            item.lastSyncedAt = .now
+
+            modelContext.insert(item)
+        }
+    }
 }
 
 // MARK: - Preview
@@ -641,7 +1119,10 @@ extension SyncService {
             Episode.self,
             EpisodeAction.self,
             SyncState.self,
-            ServerConfiguration.self
+            ServerConfiguration.self,
+            QueueItem.self,
+            Playlist.self,
+            PlaylistItem.self
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try! ModelContainer(for: schema, configurations: [config])
