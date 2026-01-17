@@ -134,17 +134,28 @@ struct QueueItemRow: View {
                 .font(.caption)
 
             // Artwork
-            AsyncImage(url: item.episode.map { URL(string: $0.effectiveArtworkURL ?? "") }) { image in
-                image
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fill)
-            } placeholder: {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.secondary.opacity(0.2))
-                    .overlay {
-                        Image(systemName: "waveform")
-                            .foregroundStyle(.secondary)
+            Group {
+                if let episode = item.episode, let url = URL(string: episode.effectiveArtworkURL ?? "") {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(1, contentMode: .fill)
+                    } placeholder: {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.secondary.opacity(0.2))
+                            .overlay {
+                                Image(systemName: "waveform")
+                                    .foregroundStyle(.secondary)
+                            }
                     }
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.secondary.opacity(0.2))
+                        .overlay {
+                            Image(systemName: "waveform")
+                                .foregroundStyle(.secondary)
+                        }
+                }
             }
             .frame(width: 48, height: 48)
             .clipShape(RoundedRectangle(cornerRadius: 8))

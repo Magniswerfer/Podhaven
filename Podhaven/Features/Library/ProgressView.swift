@@ -177,11 +177,7 @@ struct ProgressView: View {
     }
 
     private func resumeEpisode(_ episode: Episode) async {
-        do {
-            try await playerService.playEpisode(episode)
-        } catch {
-            print("Failed to resume episode: \(error)")
-        }
+        await playerService.play(episode)
     }
 
     private func markCompleted(_ episode: Episode) async {

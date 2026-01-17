@@ -92,12 +92,8 @@ struct RecentlyPlayedView: View {
         }
     }
 
-    private func resumeEpisode(_ episode: episode) async {
-        do {
-            try await playerService.playEpisode(episode)
-        } catch {
-            print("Failed to resume episode: \(error)")
-        }
+    private func resumeEpisode(_ episode: Episode) async {
+        await playerService.play(episode)
     }
 }
 
@@ -168,8 +164,8 @@ struct EpisodeProgressRow: View {
                 // Play button
                 Button {
                     Task {
-                        if let podcast = episode.podcast {
-                            try? await playerService.playEpisode(episode)
+                        if episode.podcast != nil {
+                            await playerService.play(episode)
                         }
                     }
                 } label: {

@@ -35,19 +35,15 @@ actor ITunesSearchService {
             throw ITunesSearchError.serverError(httpResponse.statusCode)
         }
         
-        // Decode outside of actor isolation
-        let searchResponse = try Self.decodeResponse(from: data)
+        // Decode response
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let searchResponse = try decoder.decode(ITunesSearchResponse.self, from: data)
         
         // Filter out results without feedUrl (required for subscription)
         return searchResponse.results.filter { $0.feedUrl != nil }
     }
     
-    /// Decode response in a nonisolated context
-    private nonisolated static func decodeResponse(from data: Data) throws -> ITunesSearchResponse {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(ITunesSearchResponse.self, from: data)
-    }
 }
 
 // MARK: - Response Models

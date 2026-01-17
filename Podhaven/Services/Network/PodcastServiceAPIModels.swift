@@ -205,10 +205,10 @@ struct BulkProgressResult: Codable, Sendable {
 // MARK: - Queue
 
 struct QueueResponse: Codable, Sendable {
-    let queue: [QueueItem]
+    let queue: [APIModelQueueItem]
 }
 
-struct QueueItem: Codable, Sendable {
+struct APIModelQueueItem: Codable, Sendable {
     let id: String
     let episodeId: String
     let position: Int
@@ -228,8 +228,8 @@ struct AddToQueueRequest: Codable, Sendable {
 }
 
 struct AddToQueueResponse: Codable, Sendable {
-    let queueItem: QueueItem
-    let queue: [QueueItem]
+    let queueItem: APIModelQueueItem
+    let queue: [APIModelQueueItem]
 }
 
 struct QueueReorderItem: Codable, Sendable {
@@ -284,10 +284,10 @@ struct APIPlaylistWithItems: Codable, Sendable {
     let description: String?
     let createdAt: Date
     let updatedAt: Date
-    let items: [PlaylistItem]
+    let items: [APIModelPlaylistItem]
 }
 
-struct PlaylistItem: Codable, Sendable {
+struct APIModelPlaylistItem: Codable, Sendable {
     let id: String
     let position: Int
     let podcast: APIPodcastBasic?

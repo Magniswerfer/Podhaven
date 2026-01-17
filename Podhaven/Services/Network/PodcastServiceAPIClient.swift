@@ -166,7 +166,7 @@ protocol PodcastServiceAPIClientProtocol: Sendable {
         podcastId: String?,
         episodeId: String?,
         position: Int?
-    ) async throws -> PlaylistItem
+    ) async throws -> APIModelPlaylistItem
 
     /// Update playlist item position
     func updatePlaylistItem(
@@ -747,7 +747,7 @@ final class PodcastServiceAPIClient: PodcastServiceAPIClientProtocol, Sendable {
         podcastId: String?,
         episodeId: String?,
         position: Int?
-    ) async throws -> PlaylistItem {
+    ) async throws -> APIModelPlaylistItem {
         guard let url = URL(string: "\(serverURL)/api/playlists/\(playlistId)/items") else {
             throw PodcastServiceAPIError.invalidURL
         }
@@ -764,7 +764,7 @@ final class PodcastServiceAPIClient: PodcastServiceAPIClientProtocol, Sendable {
 
         try validateResponse(response, data: data)
 
-        return try decoder.decode(PlaylistItem.self, from: data)
+        return try decoder.decode(APIModelPlaylistItem.self, from: data)
     }
 
     func updatePlaylistItem(

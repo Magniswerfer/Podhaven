@@ -14,9 +14,9 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
     var mockSearchResults: [PodcastSearchResult] = []
     
     // Mock data
-    var mockQueue: [QueueItem] = []
+    var mockQueue: [APIModelQueueItem] = []
     var mockPlaylists: [APIPlaylist] = []
-    var mockPlaylistItems: [String: [PlaylistItem]] = [:] // playlistId -> items
+    var mockPlaylistItems: [String: [APIModelPlaylistItem]] = [:] // playlistId -> items
 
     // Tracking calls for verification in tests
     var registerCallCount = 0
@@ -328,7 +328,7 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
             throw errorToThrow
         }
 
-        let queueItem = QueueItem(
+        let queueItem = APIModelQueueItem(
             id: UUID().uuidString,
             episodeId: episodeId,
             position: mockQueue.count,
@@ -354,7 +354,7 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
         // Update positions based on reorder request
         for item in items {
             if let index = mockQueue.firstIndex(where: { $0.id == item.id }) {
-                mockQueue[index] = QueueItem(
+                mockQueue[index] = APIModelQueueItem(
                     id: item.id,
                     episodeId: mockQueue[index].episodeId,
                     position: item.position,
@@ -543,14 +543,14 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
         podcastId: String?,
         episodeId: String?,
         position: Int?
-    ) async throws -> PlaylistItem {
+    ) async throws -> APIModelPlaylistItem {
         addToPlaylistCallCount += 1
 
         if shouldFail {
             throw errorToThrow
         }
 
-        let item = PlaylistItem(
+        let item = APIModelPlaylistItem(
             id: UUID().uuidString,
             position: position ?? (mockPlaylistItems[playlistId]?.count ?? 0),
             podcast: nil,
@@ -583,7 +583,7 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
             throw PodcastServiceAPIError.notFound
         }
 
-        items[index] = PlaylistItem(
+        items[index] = APIModelPlaylistItem(
             id: itemId,
             position: position,
             podcast: items[index].podcast,

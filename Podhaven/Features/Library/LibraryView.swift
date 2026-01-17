@@ -60,7 +60,7 @@ struct ContinueListeningCard: View {
         .contentShape(Rectangle())
         .onTapGesture {
             Task {
-                try? await playerService.playEpisode(episode)
+                await playerService.play(episode)
             }
         }
     }
@@ -111,7 +111,7 @@ struct LibraryView: View {
                         Image(systemName: "plus")
                     }
                 }
-                
+
                 ToolbarItem(placement: .topBarLeading) {
                     HStack {
                         NavigationLink {
@@ -193,7 +193,9 @@ struct LibraryView: View {
                         GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 16)
                     ], spacing: 16) {
                         ForEach(podcasts) { podcast in
-                            NavigationLink(value: podcast) {
+                            NavigationLink {
+                                PodcastDetailView(podcast: podcast)
+                            } label: {
                                 PodcastGridItem(podcast: podcast)
                             }
                             .buttonStyle(.plain)
@@ -203,9 +205,6 @@ struct LibraryView: View {
                 }
             }
             .padding(.vertical)
-        }
-        .navigationDestination(for: Podcast.self) { podcast in
-            PodcastDetailView(podcast: podcast)
         }
     }
 

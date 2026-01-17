@@ -587,7 +587,7 @@ final class SyncService {
         
         // Episode not found by server ID - try to match by audio URL if we have episode info
         if let progressEpisode = record.episode,
-           let podcastInfo = progressEpisode.podcast {
+           progressEpisode.podcast != nil {
             // Find by podcast and title as fallback
             print("SyncService: Episode with server ID \(serverEpisodeId) not found locally")
         }
@@ -660,7 +660,7 @@ final class SyncService {
             )
 
             // Try to link to local episode if we have it
-            if let episodeId = apiItem.episodeId {
+            if let episodeId = apiItem.episode?.id {
                 let episodeDescriptor = FetchDescriptor<Episode>(
                     predicate: #Predicate { $0.serverEpisodeId == episodeId }
                 )
@@ -1043,8 +1043,9 @@ final class SyncService {
     }
 
     private func syncPlaylistFromServer(_ apiPlaylist: APIPlaylist) async throws -> Playlist {
+        let playlistId = apiPlaylist.id
         let descriptor = FetchDescriptor<Playlist>(
-            predicate: #Predicate { $0.serverId == apiPlaylist.id }
+            predicate: #Predicate { $0.serverId == playlistId }
         )
 
         if let existingPlaylist = try modelContext.fetch(descriptor).first {
@@ -1071,7 +1072,7 @@ final class SyncService {
         }
     }
 
-    private func syncPlaylistItemsFromServer(_ playlist: Playlist, items: [PlaylistItem]) async throws {
+    private func syncPlaylistItemsFromServer(_ playlist: Playlist, items: [APIModelPlaylistItem]) async throws {
         // Clear existing items
         for item in playlist.items {
             modelContext.delete(item)
