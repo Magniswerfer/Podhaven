@@ -4,7 +4,7 @@ struct SearchView: View {
     @Environment(SyncService.self) private var syncService
     
     @State private var searchText = ""
-    @State private var searchResults: [PodcastSearchResult] = []
+    @State private var searchResults: [ITunesSearchResult] = []
     @State private var isSearching = false
     @State private var hasSearched = false
     @State private var searchError: String?
@@ -109,7 +109,7 @@ struct SearchView: View {
         // Search using iTunes API
         do {
             let results = try await searchService.search(query: searchText)
-            searchResults = results.compactMap { $0.toPodcastSearchResult() }
+            searchResults = results.compactMap { $0.toITunesSearchResult() }
         } catch {
             searchError = error.localizedDescription
             searchResults = []
@@ -130,7 +130,7 @@ struct SearchView: View {
 
 // MARK: - Search Result
 
-struct PodcastSearchResult: Identifiable {
+struct ITunesSearchResult: Identifiable {
     let id: String
     let title: String
     let author: String?
@@ -159,7 +159,7 @@ struct PodcastSearchResult: Identifiable {
 }
 
 struct SearchResultRow: View {
-    let result: PodcastSearchResult
+    let result: ITunesSearchResult
     
     @Environment(SyncService.self) private var syncService
     @State private var isSubscribing = false

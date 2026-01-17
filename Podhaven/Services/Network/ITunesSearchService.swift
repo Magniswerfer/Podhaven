@@ -118,11 +118,11 @@ enum ITunesSearchError: LocalizedError, Sendable {
 // MARK: - PodcastSearchResult Extension
 
 extension ITunesPodcastResult {
-    /// Convert to PodcastSearchResult for use in SearchView
-    func toPodcastSearchResult() -> PodcastSearchResult? {
+    /// Convert to ITunesSearchResult for use in SearchView
+    func toITunesSearchResult() -> ITunesSearchResult? {
         guard let feedURL = feedUrl else { return nil }
-        
-        return PodcastSearchResult(
+
+        return ITunesSearchResult(
             id: String(collectionId),
             title: displayTitle,
             author: displayAuthor,

@@ -5,19 +5,19 @@ import SwiftData
 @Model
 final class ServerConfiguration {
     @Attribute(.unique) var id: String
-    
+
     /// Server details
     var serverURL: String
-    var email: String
-    
+    var email: String?
+
     /// Authentication state
     var isAuthenticated: Bool
     var apiKey: String?
     var lastAuthenticatedAt: Date?
-    
+
     init(
         serverURL: String = "",
-        email: String = ""
+        email: String? = nil
     ) {
         self.id = "server-config"
         self.serverURL = serverURL
@@ -36,7 +36,7 @@ extension ServerConfiguration {
     }
     
     var isConfigured: Bool {
-        !serverURL.isEmpty && !email.isEmpty
+        !serverURL.isEmpty && !(email?.isEmpty ?? true)
     }
     
     var displayServerURL: String {

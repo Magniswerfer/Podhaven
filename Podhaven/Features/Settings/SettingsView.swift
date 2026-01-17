@@ -87,7 +87,7 @@ struct SettingsView: View {
             HStack {
                 Label("Email", systemImage: "envelope")
                 Spacer()
-                Text(config.email)
+                Text(config.email ?? "Not set")
                     .foregroundStyle(.secondary)
             }
             
