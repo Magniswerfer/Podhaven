@@ -545,6 +545,90 @@ final class SyncService {
         )
     }
 
+    /// Fetch episodes for a podcast with pagination and apply filter/sort settings
+    /// - Parameters:
+    ///   - podcast: The podcast to fetch episodes for
+    ///   - limit: Number of episodes per page
+    ///   - offset: Offset for pagination
+    ///   - filter: Episode filter (nil uses podcast's custom setting or "all")
+    ///   - sort: Episode sort (nil uses podcast's custom setting or "newest")
+    /// - Returns: EpisodesResponse with paginated episodes
+    func getEpisodes(
+        for podcast: Podcast,
+        limit: Int,
+        offset: Int,
+        filter: String? = nil,
+        sort: String? = nil
+    ) async throws -> EpisodesResponse {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            throw PodcastServiceAPIError.noAPIKey
+        }
+
+        guard let serverPodcastId = podcast.serverPodcastId else {
+            throw PodcastServiceAPIError.notFound
+        }
+
+        return try await apiClient.getEpisodes(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            podcastId: serverPodcastId,
+            limit: limit,
+            offset: offset,
+            filter: filter ?? podcast.customEpisodeFilter,
+            sort: sort ?? podcast.customEpisodeSort
+        )
+    }
+
+    /// Sync API episodes to local SwiftData for offline access
+    /// - Parameters:
+    ///   - apiEpisodes: Episodes fetched from API
+    ///   - podcast: The podcast these episodes belong to
+    func syncAPIEpisodesToLocal(_ apiEpisodes: [APIEpisode], for podcast: Podcast) {
+        for apiEpisode in apiEpisodes {
+            // Try to find existing episode by serverEpisodeId or audioURL
+            let existingEpisode = podcast.episodes.first { episode in
+                episode.serverEpisodeId == apiEpisode.id || episode.audioURL == apiEpisode.audioUrl
+            }
+
+            if let episode = existingEpisode {
+                // Update existing episode with server data
+                episode.serverEpisodeId = apiEpisode.id
+                if let progress = apiEpisode.progress {
+                    // Only update if server has newer progress
+                    if progress.positionSeconds > 0 {
+                        episode.playbackPosition = TimeInterval(progress.positionSeconds)
+                    }
+                    episode.isPlayed = progress.completed
+                }
+            } else {
+                // Create new episode from API data
+                let newEpisode = Episode(
+                    guid: apiEpisode.id, // Use server ID as guid for API-sourced episodes
+                    podcastFeedURL: podcast.feedURL,
+                    title: apiEpisode.title,
+                    audioURL: apiEpisode.audioUrl,
+                    episodeDescription: apiEpisode.description,
+                    publishDate: apiEpisode.publishedAt,
+                    duration: apiEpisode.durationSeconds.map { TimeInterval($0) },
+                    artworkURL: apiEpisode.artworkUrl,
+                    serverEpisodeId: apiEpisode.id
+                )
+
+                // Apply progress if available
+                if let progress = apiEpisode.progress {
+                    newEpisode.playbackPosition = TimeInterval(progress.positionSeconds)
+                    newEpisode.isPlayed = progress.completed
+                }
+
+                newEpisode.podcast = podcast
+                modelContext.insert(newEpisode)
+            }
+        }
+
+        try? modelContext.save()
+    }
+
     // MARK: - Private Methods
     
     private func getServerConfiguration() throws -> ServerConfiguration {
