@@ -44,7 +44,16 @@ protocol PodcastServiceAPIClientProtocol: Sendable {
         apiKey: String,
         podcastId: String
     ) async throws
-    
+
+    /// Update podcast settings
+    func updatePodcastSettings(
+        serverURL: String,
+        apiKey: String,
+        podcastId: String,
+        filter: String?,
+        sort: String?
+    ) async throws -> UpdatePodcastSettingsResponse
+
     /// Search for podcasts
     func searchPodcasts(
         serverURL: String,
@@ -184,6 +193,20 @@ protocol PodcastServiceAPIClientProtocol: Sendable {
         playlistId: String,
         itemId: String
     ) async throws -> UnsubscribeResponse
+
+    /// Get dashboard statistics
+    func getDashboardStats(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> DashboardStatsResponse
+
+    /// Get new episodes from all subscriptions
+    func getNewEpisodes(
+        serverURL: String,
+        apiKey: String,
+        fromDate: Date?,
+        limit: Int?
+    ) async throws -> EpisodesResponse
 }
 
 // MARK: - Implementation
@@ -351,10 +374,39 @@ final class PodcastServiceAPIClient: PodcastServiceAPIClientProtocol, Sendable {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         
         let (data, response) = try await session.data(for: request)
-        
+
         try validateResponse(response, data: data)
     }
-    
+
+    func updatePodcastSettings(
+        serverURL: String,
+        apiKey: String,
+        podcastId: String,
+        filter: String?,
+        sort: String?
+    ) async throws -> UpdatePodcastSettingsResponse {
+        guard let url = URL(string: "\(serverURL)/api/podcasts/\(podcastId)/settings") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = PodcastSettingsUpdateRequest(
+            episodeFilter: filter,
+            episodeSort: sort
+        )
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(UpdatePodcastSettingsResponse.self, from: data)
+    }
+
     func searchPodcasts(
         serverURL: String,
         apiKey: String,
@@ -824,6 +876,71 @@ final class PodcastServiceAPIClient: PodcastServiceAPIClientProtocol, Sendable {
         try validateResponse(response, data: data)
 
         return try decoder.decode(UnsubscribeResponse.self, from: data)
+    }
+
+    // MARK: - Stats & Dashboard
+
+    func getDashboardStats(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> DashboardStatsResponse {
+        guard let url = URL(string: "\(serverURL)/api/stats/dashboard") else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(DashboardStatsResponse.self, from: data)
+    }
+
+    func getNewEpisodes(
+        serverURL: String,
+        apiKey: String,
+        fromDate: Date?,
+        limit: Int?
+    ) async throws -> EpisodesResponse {
+        var components = URLComponents(string: "\(serverURL)/api/episodes")
+        var queryItems: [URLQueryItem] = []
+
+        if let fromDate = fromDate {
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime]
+            let dateString = isoFormatter.string(from: fromDate)
+            queryItems.append(URLQueryItem(name: "fromDate", value: dateString))
+        }
+
+        if let limit = limit {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+
+        // Sort by newest first for new episodes
+        queryItems.append(URLQueryItem(name: "sort", value: "newest"))
+
+        if !queryItems.isEmpty {
+            components?.queryItems = queryItems
+        }
+
+        guard let url = components?.url else {
+            throw PodcastServiceAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(EpisodesResponse.self, from: data)
     }
 
     // MARK: - Private Helpers

@@ -118,7 +118,7 @@ struct ProgressView: View {
 
             ForEach(currentEpisodes) { episode in
                 EpisodeProgressRow(episode: episode)
-                    .swipeActions(edge: .trailing) {
+                    .swipeActions(edge: HorizontalEdge.trailing) {
                         if selectedSegment == 0 {
                             // In progress - can resume or mark complete
                             Button {
@@ -190,6 +190,88 @@ struct ProgressView: View {
         } catch {
             print("Failed to mark episode as completed: \(error)")
         }
+    }
+}
+
+struct EpisodeProgressRow: View {
+    let episode: Episode
+
+    @Environment(AudioPlayerService.self) private var playerService
+
+    private var isCurrentEpisode: Bool {
+        playerService.currentEpisode?.id == episode.id
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Play indicator or artwork
+            ZStack {
+                if let artworkURL = episode.effectiveArtworkURL,
+                   let url = URL(string: artworkURL) {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(1, contentMode: .fill)
+                    } placeholder: {
+                        Color.secondary.opacity(0.2)
+                    }
+                } else {
+                    Color.secondary.opacity(0.2)
+                }
+
+                if isCurrentEpisode && playerService.isPlaying {
+                    Color.black.opacity(0.4)
+                    Image(systemName: "waveform")
+                        .font(.title3)
+                        .foregroundStyle(.white)
+                        .symbolEffect(.variableColor.iterative)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            // Episode info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(episode.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+
+                if let podcastTitle = episode.podcast?.title {
+                    Text(podcastTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 8) {
+                    if episode.isPlayed {
+                        Text("✓ Completed")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    } else if episode.playbackPosition > 0 {
+                        Text("\(Int(episode.progress * 100))% · \(episode.remainingTime?.formattedTime() ?? "") left")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let lastPlayed = episode.lastPlayedAt {
+                        Text(lastPlayed, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Play button
+            Image(systemName: episode.isPlayed ? "checkmark.circle.fill" : "play.circle")
+                .font(.title3)
+                .foregroundStyle(episode.isPlayed ? .green : .accentColor)
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }
 

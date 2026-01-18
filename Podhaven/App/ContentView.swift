@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selectedTab: Tab = .library
+    @State private var selectedTab: Tab = .dashboard
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(SyncService.self) private var syncService
     @Environment(\.scenePhase) private var scenePhase
@@ -12,6 +12,12 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
+                DashboardView()
+                    .tag(Tab.dashboard)
+                    .tabItem {
+                        Label("Dashboard", systemImage: "house")
+                    }
+
                 LibraryView()
                     .tag(Tab.library)
                     .tabItem {
@@ -108,9 +114,21 @@ struct ContentView: View {
         syncTimer?.invalidate()
         syncTimer = nil
     }
+
+    private func formatTime(_ time: TimeInterval) -> String {
+        let hours = Int(time) / 3600
+        let minutes = Int(time) / 60 % 60
+        let seconds = Int(time) % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 }
 
 enum Tab: Hashable {
+    case dashboard
     case library
     case queue
     case search

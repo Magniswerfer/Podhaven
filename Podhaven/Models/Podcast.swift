@@ -23,6 +23,10 @@ final class Podcast {
     var lastUpdated: Date?
     var isSubscribed: Bool
     
+    /// Per-podcast settings
+    var customEpisodeFilter: String?
+    var customEpisodeSort: String?
+    
     /// Relationships
     @Relationship(deleteRule: .cascade, inverse: \Episode.podcast)
     var episodes: [Episode]
@@ -42,7 +46,9 @@ final class Podcast {
         categories: [String] = [],
         dateAdded: Date = .now,
         isSubscribed: Bool = true,
-        serverPodcastId: String? = nil
+        serverPodcastId: String? = nil,
+        customEpisodeFilter: String? = nil,
+        customEpisodeSort: String? = nil
     ) {
         self.feedURL = feedURL
         self.title = title
@@ -59,6 +65,8 @@ final class Podcast {
         self.lastSyncedAt = nil
         self.lastUpdated = nil
         self.serverPodcastId = serverPodcastId
+        self.customEpisodeFilter = customEpisodeFilter
+        self.customEpisodeSort = customEpisodeSort
     }
 }
 

@@ -58,6 +58,16 @@ struct PodcastCustomSettings: Codable, Sendable {
     let episodeSort: String?
 }
 
+struct UpdatePodcastSettingsResponse: Codable, Sendable {
+    let success: Bool
+    let customSettings: PodcastCustomSettings
+}
+
+struct PodcastSettingsUpdateRequest: Codable, Sendable {
+    let episodeFilter: String?
+    let episodeSort: String?
+}
+
 struct SubscribeRequest: Codable, Sendable {
     let feedUrl: String
 }
@@ -100,7 +110,7 @@ struct EpisodesResponse: Codable, Sendable {
     let offset: Int
 }
 
-struct APIEpisode: Codable, Sendable {
+struct APIEpisode: Codable, Sendable, Identifiable {
     let id: String
     let title: String
     let description: String?
@@ -136,7 +146,7 @@ struct ProgressResponse: Codable, Sendable {
     let progress: [ProgressRecord]
 }
 
-struct ProgressRecord: Codable, Sendable {
+struct ProgressRecord: Codable, Sendable, Identifiable {
     let id: String
     let episodeId: String
     let positionSeconds: Int

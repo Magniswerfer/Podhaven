@@ -420,6 +420,80 @@ final class SyncService {
         try modelContext.save()
     }
     
+    /// Update per-podcast settings
+    func updatePodcastSettings(
+        for podcast: Podcast,
+        filter: String?,
+        sort: String?
+    ) async throws {
+        // Save locally immediately
+        podcast.customEpisodeFilter = filter
+        podcast.customEpisodeSort = sort
+
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated,
+              let apiKey = config.apiKey,
+              let serverPodcastId = podcast.serverPodcastId else {
+            // If offline or not synced, local save is enough.
+            // We can enhance this later to queue the sync action.
+            try modelContext.save()
+            return
+        }
+
+        let response = try await apiClient.updatePodcastSettings(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            podcastId: serverPodcastId,
+            filter: filter,
+            sort: sort
+        )
+
+        podcast.customEpisodeFilter = response.customSettings.episodeFilter
+        podcast.customEpisodeSort = response.customSettings.episodeSort
+        try modelContext.save()
+    }
+
+    /// Get dashboard statistics from the server
+    func getDashboardStats() async throws -> DashboardStatsResponse {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            throw PodcastServiceAPIError.noAPIKey
+        }
+
+        return try await apiClient.getDashboardStats(
+            serverURL: config.serverURL,
+            apiKey: apiKey
+        )
+    }
+
+    /// Get new episodes from all subscriptions
+    func getNewEpisodes(fromDate: Date?, limit: Int?) async throws -> EpisodesResponse {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            throw PodcastServiceAPIError.noAPIKey
+        }
+
+        return try await apiClient.getNewEpisodes(
+            serverURL: config.serverURL,
+            apiKey: apiKey,
+            fromDate: fromDate,
+            limit: limit
+        )
+    }
+
+    /// Get listening progress for all episodes
+    func getProgress() async throws -> ProgressResponse {
+        let config = try getServerConfiguration()
+        guard config.isAuthenticated, let apiKey = config.apiKey else {
+            throw PodcastServiceAPIError.noAPIKey
+        }
+
+        return try await apiClient.getProgress(
+            serverURL: config.serverURL,
+            apiKey: apiKey
+        )
+    }
+
     // MARK: - Private Methods
     
     private func getServerConfiguration() throws -> ServerConfiguration {

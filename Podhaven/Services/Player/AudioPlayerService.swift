@@ -15,11 +15,13 @@ final class AudioPlayerService {
     private(set) var duration: TimeInterval = 0
     private(set) var playbackRate: Float = 1.0
     private(set) var error: Error?
+    private(set) var sleepTimerEndDate: Date?
 
     // MARK: - Private Properties
 
     private var player: AVPlayer?
     private var timeObserver: Any?
+    private var sleepTimerTask: Task<Void, Error>?
     private var statusObservation: NSKeyValueObservation?
     private var rateObservation: NSKeyValueObservation?
     private var artworkImage: UIImage?
@@ -45,8 +47,19 @@ final class AudioPlayerService {
 
     // MARK: - Public Methods
 
-    /// Play an episode
+    /// Play an episode, resuming from the last known position.
     func play(_ episode: Episode) async {
+        // If the episode is near the end (less than 30s remaining), start it over.
+        // Otherwise, resume from the saved position.
+        let isNearEnd = (episode.duration ?? 0) > 30 && (episode.duration ?? 0) - episode.playbackPosition < 30
+        let positionToPlayFrom = isNearEnd ? 0 : episode.playbackPosition
+
+        await play(episode, from: positionToPlayFrom)
+    }
+
+    /// Private method to play an episode from a specific time.
+    /// Play an episode
+    private func play(_ episode: Episode, from position: TimeInterval) async {
         guard let url = episode.playbackURL else {
             error = PlayerError.invalidURL
             return
@@ -77,8 +90,8 @@ final class AudioPlayerService {
         await loadArtwork(for: episode)
 
         // Seek to saved position if any
-        if episode.playbackPosition > 0 {
-            await seek(to: episode.playbackPosition)
+        if position > 0 {
+            await seek(to: position)
         }
 
         // Update Now Playing info BEFORE starting playback
@@ -89,6 +102,19 @@ final class AudioPlayerService {
 
         // Update again after starting to reflect playing state
         updateNowPlayingInfo()
+    }
+
+    /// Plays an episode from the very beginning, resetting any saved progress.
+    func playFromBeginning(_ episode: Episode) async {
+        // Reset position on the model and inform sync service if needed
+        if episode.playbackPosition > 0 {
+            episode.playbackPosition = 0
+            // The onPositionUpdate callback is important for syncing the reset position.
+            await onPositionUpdate?(episode, 0)
+        }
+
+        // Now play from the start
+        await play(episode, from: 0)
     }
 
     /// Resume playback
@@ -147,6 +173,44 @@ final class AudioPlayerService {
         playbackRate = rate
         player?.rate = isPlaying ? rate : 0
         updateNowPlayingInfo()
+    }
+
+    /// Sets a sleep timer. After the duration, playback will be paused.
+    /// - Parameter duration: The time in seconds until playback should pause.
+    ///   Pass `0` or a negative value to clear the timer.
+    func setSleepTimer(for duration: TimeInterval) {
+        // Cancel any existing timer task
+        cancelSleepTimer()
+
+        guard duration > 0 else {
+            return
+        }
+
+        let endDate = Date().addingTimeInterval(duration)
+        self.sleepTimerEndDate = endDate
+
+        sleepTimerTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(duration))
+                
+                // If the task wasn't cancelled, pause playback
+                if self.isPlaying {
+                    self.pause()
+                }
+                self.sleepTimerEndDate = nil
+                self.sleepTimerTask = nil
+            } catch {
+                // This catches the cancellation error if Task.sleep is cancelled.
+                // It's an expected part of the flow, so no action is needed.
+            }
+        }
+    }
+
+    /// Cancels the active sleep timer.
+    func cancelSleepTimer() {
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerEndDate = nil
     }
 
     /// Stop playback and clear current episode
@@ -455,6 +519,8 @@ final class AudioPlayerService {
     }
 
     private func cleanup() {
+        cancelSleepTimer()
+
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil

@@ -43,7 +43,9 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
     var addToPlaylistCallCount = 0
     var updatePlaylistItemCallCount = 0
     var removeFromPlaylistCallCount = 0
-    
+    var getDashboardStatsCallCount = 0
+    var getNewEpisodesCallCount = 0
+
     // MARK: - Authentication
     
     func register(
@@ -610,6 +612,88 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
         return UnsubscribeResponse(success: true)
     }
 
+    func updatePodcastSettings(
+        serverURL: String,
+        apiKey: String,
+        podcastId: String,
+        filter: String?,
+        sort: String?
+    ) async throws -> UpdatePodcastSettingsResponse {
+        // This would normally update call count, but since it's not tracked for testing, just return success
+
+        if shouldFail {
+            throw errorToThrow
+        }
+
+        return UpdatePodcastSettingsResponse(
+            success: true,
+            customSettings: PodcastCustomSettings(
+                episodeFilter: filter,
+                episodeSort: sort
+            )
+        )
+    }
+
+    // MARK: - Stats & Dashboard
+
+    func getDashboardStats(
+        serverURL: String,
+        apiKey: String
+    ) async throws -> DashboardStatsResponse {
+        getDashboardStatsCallCount += 1
+
+        if shouldFail {
+            throw errorToThrow
+        }
+
+        return DashboardStatsResponse(
+            stats: DashboardStats(
+                totalListeningTimeSeconds: 36000,
+                totalEpisodesCompleted: 50,
+                totalEpisodesInProgress: 10,
+                totalPodcastsSubscribed: 5
+            )
+        )
+    }
+
+    func getNewEpisodes(
+        serverURL: String,
+        apiKey: String,
+        fromDate: Date?,
+        limit: Int?
+    ) async throws -> EpisodesResponse {
+        getNewEpisodesCallCount += 1
+
+        if shouldFail {
+            throw errorToThrow
+        }
+
+        let mockEpisodes = (1...(limit ?? 5)).map { index in
+            APIEpisode(
+                id: UUID().uuidString,
+                title: "New Episode \(index)",
+                description: "This is a mock new episode for testing",
+                audioUrl: "https://example.com/episode\(index).mp3",
+                publishedAt: Date().addingTimeInterval(-Double(index) * 86400), // Days ago
+                durationSeconds: 1800 + index * 300, // 30-45 minutes
+                artworkUrl: "https://example.com/artwork.jpg",
+                podcast: APIPodcastBasic(
+                    id: UUID().uuidString,
+                    title: "Mock Podcast \(index % 3 + 1)",
+                    artworkUrl: "https://example.com/podcast-artwork.jpg"
+                ),
+                progress: nil
+            )
+        }
+
+        return EpisodesResponse(
+            episodes: mockEpisodes,
+            total: mockEpisodes.count,
+            limit: limit ?? 20,
+            offset: 0
+        )
+    }
+
     // MARK: - Test Helpers
     
     func reset() {
@@ -638,6 +722,8 @@ final class MockPodcastServiceAPIClient: PodcastServiceAPIClientProtocol, @unche
         addToPlaylistCallCount = 0
         updatePlaylistItemCallCount = 0
         removeFromPlaylistCallCount = 0
+        getDashboardStatsCallCount = 0
+        getNewEpisodesCallCount = 0
         mockSubscriptions = []
         mockProgress = []
         mockEpisodes = []
