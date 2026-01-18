@@ -193,9 +193,31 @@ struct LibraryView: View {
     private func refreshAllPodcasts() async {
         isRefreshing = true
         defer { isRefreshing = false }
-        
-        for podcast in podcasts {
-            try? await syncService.refreshPodcast(podcast)
+
+        // Refresh podcasts concurrently with a limit of 3 concurrent requests
+        // to avoid overwhelming the network while still being faster than sequential
+        let maxConcurrency = 3
+
+        await withTaskGroup(of: Void.self) { group in
+            var runningTasks = 0
+            var podcastIndex = 0
+
+            for podcast in podcasts {
+                // Wait if we've reached max concurrency
+                if runningTasks >= maxConcurrency {
+                    await group.next()
+                    runningTasks -= 1
+                }
+
+                group.addTask {
+                    try? await self.syncService.refreshPodcast(podcast)
+                }
+                runningTasks += 1
+                podcastIndex += 1
+            }
+
+            // Wait for remaining tasks
+            await group.waitForAll()
         }
     }
 }

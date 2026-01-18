@@ -80,21 +80,27 @@ final class AudioPlayerService {
 
         let playerItem = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: playerItem)
-        
+
         // Important for audio-only apps - prevents video routing issues
         player?.allowsExternalPlayback = false
 
         setupObservers()
 
-        // Pre-load artwork before starting playback
-        await loadArtwork(for: episode)
+        // Load artwork asynchronously - don't block playback start
+        Task { [weak self] in
+            await self?.loadArtwork(for: episode)
+            // Update Now Playing info when artwork is ready
+            await MainActor.run {
+                self?.updateNowPlayingInfo()
+            }
+        }
 
         // Seek to saved position if any
         if position > 0 {
             await seek(to: position)
         }
 
-        // Update Now Playing info BEFORE starting playback
+        // Update Now Playing info immediately (without artwork)
         updateNowPlayingInfo()
 
         player?.play()
