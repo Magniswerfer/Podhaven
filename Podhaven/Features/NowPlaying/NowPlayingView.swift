@@ -1,33 +1,35 @@
 import SwiftUI
 import WebKit
+import AVKit
 
 struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(AudioPlayerService.self) private var playerService
-    
+    @Environment(SyncService.self) private var syncService
+
     @State private var isDraggingSlider = false
     @State private var sliderValue: Double = 0
     @State private var artworkScale: CGFloat = 1.0
     @State private var scrollOffset: CGFloat = 0
-    
+
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
                 ZStack {
                     // Animated gradient background
                     backgroundGradient
-                    
+
                     VStack(spacing: 0) {
                         // Scrollable content area
                         ScrollView {
                             VStack(spacing: 0) {
                                 Spacer()
                                     .frame(height: 20)
-                                
+
                                 // Artwork with glass frame
                                 artworkView
-                                    .frame(width: min(geometry.size.width - 64, 320))
+                                    .frame(width: max(0, min(geometry.size.width - 64, 320)))
                                     .scaleEffect(artworkScale)
                                     .animation(.smooth(duration: 0.3), value: playerService.isPlaying)
                                     .onChange(of: playerService.isPlaying) { _, isPlaying in
@@ -35,68 +37,39 @@ struct NowPlayingView: View {
                                             artworkScale = isPlaying ? 1.0 : 0.92
                                         }
                                     }
-                                
+
                                 Spacer()
                                     .frame(height: 24)
-                                
+
                                 // Episode Info
                                 episodeInfo
                                     .padding(.horizontal, 24)
-                                
+
                                 // Scroll hint for show notes
                                 scrollHint
                                     .padding(.top, 20)
-                                
+
                                 // Show Notes Content (revealed by scrolling)
                                 showNotesSection
                                     .padding(.top, 8)
                                     .padding(.horizontal, 16)
-                                
+
                                 // Bottom padding for controls
                                 Spacer()
-                                    .frame(height: 220)
+                                    .frame(height: 280)
                             }
                         }
                         .scrollIndicators(.hidden)
                     }
-                    
-                    // Fixed bottom controls overlay
+
+                    // Fixed bottom controls overlay with Liquid Glass
                     VStack {
                         Spacer()
-                        
-                        VStack(spacing: 0) {
-                            // Gradient fade from content to controls
-                            LinearGradient(
-                                colors: [
-                                    Color(.systemBackground).opacity(0),
-                                    Color(.systemBackground).opacity(0.9),
-                                    Color(.systemBackground)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: 40)
-                            
-                            VStack(spacing: 16) {
-                                // Progress with glass styling
-                                progressView
-                                    .padding(.horizontal, 24)
-                                
-                                // Controls with glass effect
-                                controlsView
-                                
-                                // Extras bar with glass capsule
-                                extrasView
-                                    .padding(.horizontal, 24)
-                            }
-                            .padding(.bottom, 24)
-                            .background(Color(.systemBackground))
-                        }
+                        controlsOverlay
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -104,12 +77,9 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: "chevron.down")
                             .fontWeight(.semibold)
-                            .foregroundStyle(.primary)
-                            .frame(width: 36, height: 36)
                     }
-                    .buttonStyle(.bordered)
                 }
-                
+
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if let episode = playerService.currentEpisode {
@@ -118,11 +88,13 @@ struct NowPlayingView: View {
                             } label: {
                                 Label("Share Episode", systemImage: "square.and.arrow.up")
                             }
-                            
+
                             Divider()
-                            
+
                             Button {
-                                episode.isPlayed.toggle()
+                                Task {
+                                    try? await syncService.markEpisodePlayed(episode, played: !episode.isPlayed)
+                                }
                             } label: {
                                 Label(
                                     episode.isPlayed ? "Mark as Unplayed" : "Mark as Played",
@@ -133,12 +105,32 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                             .fontWeight(.semibold)
-                            .foregroundStyle(.primary)
-                            .frame(width: 36, height: 36)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
+        }
+    }
+
+    // MARK: - Controls Overlay
+
+    private var controlsOverlay: some View {
+        VStack(spacing: 16) {
+            // Progress slider
+            progressView
+                .padding(.horizontal, 24)
+
+            // Main playback controls in a glass container
+            controlsView
+
+            // Extras bar
+            extrasView
+                .padding(.horizontal, 24)
+        }
+        .padding(.vertical, 24)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
         }
     }
     
@@ -288,50 +280,30 @@ struct NowPlayingView: View {
     }
     
     // MARK: - Progress
-    
+
     private var progressView: some View {
-        VStack(spacing: 10) {
-            // Custom glass-styled progress bar
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    // Track background with glass effect
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .frame(height: 6)
-                    
-                    // Progress fill
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .frame(
-                            width: max(0, geo.size.width * progressPercentage),
-                            height: 6
-                        )
-                    
-                    // Draggable thumb
-                    Circle()
-                        .fill(.white)
-                        .frame(width: isDraggingSlider ? 20 : 14, height: isDraggingSlider ? 20 : 14)
-                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-                        .offset(x: max(0, min(geo.size.width - 14, geo.size.width * progressPercentage - 7)))
-                        .animation(.smooth(duration: 0.15), value: isDraggingSlider)
+        VStack(spacing: 8) {
+            // Native slider for Liquid Glass compatibility
+            Slider(
+                value: Binding(
+                    get: { isDraggingSlider ? sliderValue : playerService.currentTime },
+                    set: { newValue in
+                        isDraggingSlider = true
+                        sliderValue = newValue
+                    }
+                ),
+                in: 0...max(1, playerService.duration),
+                onEditingChanged: { editing in
+                    if !editing {
+                        Task {
+                            await playerService.seek(to: sliderValue)
+                            isDraggingSlider = false
+                        }
+                    }
                 }
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            isDraggingSlider = true
-                            let percentage = max(0, min(1, value.location.x / geo.size.width))
-                            sliderValue = percentage * playerService.duration
-                        }
-                        .onEnded { _ in
-                            Task {
-                                await playerService.seek(to: sliderValue)
-                                isDraggingSlider = false
-                            }
-                        }
-                )
-            }
-            .frame(height: 20)
-            
+            )
+            .tint(.accentColor)
+
             // Time labels
             HStack {
                 Text(formatTime(isDraggingSlider ? sliderValue : playerService.currentTime))
@@ -339,9 +311,9 @@ struct NowPlayingView: View {
                     .fontWeight(.medium)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
-                
+
                 Spacer()
-                
+
                 Text("-" + formatTime(max(0, playerService.duration - (isDraggingSlider ? sliderValue : playerService.currentTime))))
                     .font(.caption)
                     .fontWeight(.medium)
@@ -351,18 +323,10 @@ struct NowPlayingView: View {
         }
     }
     
-    private var progressPercentage: Double {
-        guard playerService.duration > 0 else { return 0 }
-        let time = isDraggingSlider ? sliderValue : playerService.currentTime
-        return time / playerService.duration
-    }
-    
     // MARK: - Controls
-    
+
     private var controlsView: some View {
-        HStack(spacing: 0) {
-            Spacer()
-            
+        HStack(spacing: 40) {
             // Skip backward
             Button {
                 Task {
@@ -370,29 +334,26 @@ struct NowPlayingView: View {
                 }
             } label: {
                 Image(systemName: "gobackward.15")
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
             }
-            .buttonStyle(.bordered)
-            
-            Spacer()
-            
+            .buttonStyle(.plain)
+            .frame(width: 56, height: 56)
+
             // Play/Pause - prominent button
             Button {
                 playerService.togglePlayPause()
             } label: {
                 Image(systemName: playerService.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 76, height: 76)
-                    .offset(x: playerService.isPlaying ? 0 : 2)
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 72, height: 72)
+                    .offset(x: playerService.isPlaying ? 0 : 3)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.borderedProminent)
-            
-            Spacer()
-            
+            .buttonBorderShape(.circle)
+
             // Skip forward
             Button {
                 Task {
@@ -400,20 +361,18 @@ struct NowPlayingView: View {
                 }
             } label: {
                 Image(systemName: "goforward.30")
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
             }
-            .buttonStyle(.bordered)
-            
-            Spacer()
+            .buttonStyle(.plain)
+            .frame(width: 56, height: 56)
         }
     }
     
     // MARK: - Extras
-    
+
     private var extrasView: some View {
-        HStack(spacing: 0) {
+        HStack {
             // Playback speed
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { speed in
@@ -432,37 +391,28 @@ struct NowPlayingView: View {
                 Text("\(playerService.playbackRate, specifier: "%.2g")x")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .monospacedDigit()
             }
             .buttonStyle(.bordered)
-            
+            .buttonBorderShape(.capsule)
+
             Spacer()
-            
+
             // Sleep timer
             Button {
                 // TODO: Sleep timer
             } label: {
                 Image(systemName: "moon.zzz")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)
+                    .font(.system(size: 18, weight: .medium))
             }
             .buttonStyle(.bordered)
-            
+            .buttonBorderShape(.circle)
+
             Spacer()
-            
-            // AirPlay
-            Button {
-                // TODO: AirPlay picker
-            } label: {
-                Image(systemName: "airplayaudio")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)
-            }
-            .buttonStyle(.bordered)
+
+            // AirPlay - use the native route picker
+            AirPlayButton()
+                .frame(width: 44, height: 44)
         }
     }
     
@@ -627,7 +577,22 @@ struct InlineShowNotesView: UIViewRepresentable {
 
 
 
+// MARK: - AirPlay Button
+
+struct AirPlayButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let routePickerView = AVRoutePickerView()
+        routePickerView.tintColor = UIColor.label
+        routePickerView.activeTintColor = UIColor.tintColor
+        routePickerView.prioritizesVideoDevices = false
+        return routePickerView
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
 #Preview {
     NowPlayingView()
         .environment(AudioPlayerService())
+        .environment(SyncService.preview)
 }

@@ -474,14 +474,28 @@ final class PodcastServiceAPIClient: PodcastServiceAPIClientProtocol, Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let body = ProgressUpdateRequest(
+            episodeId: episodeId,
             positionSeconds: positionSeconds,
             durationSeconds: durationSeconds,
             completed: completed
         )
-        request.httpBody = try encoder.encode(body)
-        
+        let bodyData = try encoder.encode(body)
+        request.httpBody = bodyData
+
+        // Debug logging
+        if let jsonString = String(data: bodyData, encoding: .utf8) {
+            print("PodcastServiceAPIClient: updateProgress request to \(url) with body: \(jsonString)")
+        }
+
         let (data, response) = try await session.data(for: request)
-        
+
+        // Debug logging for errors
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 400 {
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("PodcastServiceAPIClient: updateProgress error response: \(responseString)")
+            }
+        }
+
         try validateResponse(response, data: data)
         
         return try decoder.decode(ProgressUpdateResponse.self, from: data)

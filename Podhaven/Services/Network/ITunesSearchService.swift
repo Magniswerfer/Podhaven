@@ -35,10 +35,8 @@ actor ITunesSearchService {
             throw ITunesSearchError.serverError(httpResponse.statusCode)
         }
         
-        // Decode response
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let searchResponse = try decoder.decode(ITunesSearchResponse.self, from: data)
+        // Decode response (nonisolated to work within actor)
+        let searchResponse = try JSONDecoder().decode(ITunesSearchResponse.self, from: data)
         
         // Filter out results without feedUrl (required for subscription)
         return searchResponse.results.filter { $0.feedUrl != nil }
@@ -48,9 +46,21 @@ actor ITunesSearchService {
 
 // MARK: - Response Models
 
-struct ITunesSearchResponse: Decodable, Sendable {
+struct ITunesSearchResponse: Sendable {
     let resultCount: Int
     let results: [ITunesPodcastResult]
+}
+
+extension ITunesSearchResponse: Decodable {
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        resultCount = try container.decode(Int.self, forKey: .resultCount)
+        results = try container.decode([ITunesPodcastResult].self, forKey: .results)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case resultCount, results
+    }
 }
 
 struct ITunesPodcastResult: Decodable, Identifiable, Sendable {
@@ -70,19 +80,19 @@ struct ITunesPodcastResult: Decodable, Identifiable, Sendable {
     let genreIds: [String]?
     let genres: [String]?
     let trackCount: Int?
-    
+
     var id: Int { collectionId }
-    
+
     /// Get the best available artwork URL (prefer larger sizes)
     var bestArtworkURL: String? {
         artworkUrl600 ?? artworkUrl100 ?? artworkUrl60 ?? artworkUrl30
     }
-    
+
     /// Display title (prefer collectionName)
     var displayTitle: String {
         collectionName
     }
-    
+
     /// Display author
     var displayAuthor: String? {
         artistName

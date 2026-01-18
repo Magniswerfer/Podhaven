@@ -171,6 +171,7 @@ struct APIProgressDetail: Codable, Sendable {
 }
 
 struct ProgressUpdateRequest: Codable, Sendable {
+    let episodeId: String
     let positionSeconds: Int
     let durationSeconds: Int
     let completed: Bool

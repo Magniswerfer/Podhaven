@@ -67,25 +67,19 @@ struct MiniPlayerView: View {
                         }
                         
                         Spacer(minLength: 8)
-                        
-                        // Play/Pause button with glass effect
+
+                        // Play/Pause button
                         Button {
                             playerService.togglePlayPause()
                         } label: {
                             Image(systemName: playerService.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(.primary)
-                                .frame(width: 44, height: 44)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .overlay {
-                                    Circle()
-                                        .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
-                                }
+                                .font(.system(size: 20, weight: .medium))
                                 .contentTransition(.symbolEffect(.replace))
                         }
-                        .buttonStyle(MiniPlayerButtonStyle())
-                        
-                        // Skip forward button with glass effect
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.circle)
+
+                        // Skip forward button
                         Button {
                             Task {
                                 await playerService.skipForward()
@@ -93,15 +87,9 @@ struct MiniPlayerView: View {
                         } label: {
                             Image(systemName: "goforward.30")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.primary)
-                                .frame(width: 40, height: 40)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .overlay {
-                                    Circle()
-                                        .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
-                                }
                         }
-                        .buttonStyle(MiniPlayerButtonStyle())
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.circle)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -139,16 +127,6 @@ struct MiniPlayerView: View {
                 NowPlayingView()
             }
         }
-    }
-}
-
-// MARK: - Mini Player Button Style
-
-struct MiniPlayerButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.smooth(duration: 0.12), value: configuration.isPressed)
     }
 }
 

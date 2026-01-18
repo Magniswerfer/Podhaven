@@ -56,6 +56,12 @@ final class SyncService {
             try await syncSubscriptions(config: config, apiKey: apiKey, syncState: syncState)
             print("SyncService: Subscription sync completed")
 
+            // Sync episode IDs for all subscribed podcasts
+            syncProgress = "Syncing episode data..."
+            print("SyncService: Starting episode ID sync")
+            try await syncAllEpisodeIds()
+            print("SyncService: Episode ID sync completed")
+
             // Sync progress
             syncProgress = "Syncing listening progress..."
             print("SyncService: Starting progress sync")
@@ -283,7 +289,77 @@ final class SyncService {
         
         try modelContext.save()
     }
-    
+
+    /// Mark an episode as played or unplayed and sync to server
+    func markEpisodePlayed(_ episode: Episode, played: Bool) async throws {
+        episode.isPlayed = played
+        episode.needsSync = true
+
+        // Get duration - use a reasonable default if not available
+        let duration = episode.duration ?? 0
+
+        // If marking as played, set position to end; if unplayed, reset to 0
+        let position: TimeInterval
+        if played {
+            position = duration > 0 ? duration : episode.playbackPosition
+        } else {
+            position = 0  // Reset position when marking as unplayed
+        }
+
+        // Can only sync if we have a valid duration
+        guard duration > 0 else {
+            print("SyncService: Cannot sync played state - episode has no duration")
+            try modelContext.save()
+            return
+        }
+
+        // Try to sync immediately
+        let config = try getServerConfiguration()
+        if config.isAuthenticated,
+           let apiKey = config.apiKey,
+           let serverEpisodeId = episode.serverEpisodeId {
+            print("SyncService: Syncing played state - episodeId: \(serverEpisodeId), position: \(Int(position)), duration: \(Int(duration)), completed: \(played)")
+            do {
+                _ = try await apiClient.updateProgress(
+                    serverURL: config.serverURL,
+                    apiKey: apiKey,
+                    episodeId: serverEpisodeId,
+                    positionSeconds: Int(position),
+                    durationSeconds: Int(duration),
+                    completed: played
+                )
+                episode.needsSync = false
+                episode.lastSyncedAt = .now
+                print("SyncService: Successfully synced played state")
+            } catch {
+                print("SyncService: Failed to sync played state: \(error)")
+                // Queue for later sync
+                let action = EpisodeAction(
+                    episodeId: episode.id,
+                    serverEpisodeId: serverEpisodeId,
+                    positionSeconds: Int(position),
+                    durationSeconds: Int(duration),
+                    completed: played
+                )
+                modelContext.insert(action)
+            }
+        } else if let serverEpisodeId = episode.serverEpisodeId {
+            // Queue for later sync
+            let action = EpisodeAction(
+                episodeId: episode.id,
+                serverEpisodeId: serverEpisodeId,
+                positionSeconds: Int(position),
+                durationSeconds: Int(duration),
+                completed: played
+            )
+            modelContext.insert(action)
+        } else {
+            print("SyncService: Cannot sync played state - episode has no serverEpisodeId")
+        }
+
+        try modelContext.save()
+    }
+
     /// Refresh a podcast's feed
     func refreshPodcast(_ podcast: Podcast) async throws {
         guard let url = URL(string: podcast.feedURL) else {
@@ -529,36 +605,63 @@ final class SyncService {
             try await applyProgressFromServer(progressRecord)
         }
         
-        // Upload pending local progress
+        // Upload pending local progress from EpisodeAction queue
         print("SyncService: Checking for pending progress updates to upload")
         let pendingDescriptor = FetchDescriptor<EpisodeAction>(
             predicate: #Predicate { !$0.isSynced }
         )
         let pendingActions = try modelContext.fetch(pendingDescriptor)
-        print("SyncService: Found \(pendingActions.count) pending progress updates")
+        print("SyncService: Found \(pendingActions.count) pending progress updates from queue")
 
-        if !pendingActions.isEmpty {
-            let updates = pendingActions.compactMap { $0.toBulkProgressUpdate() }
-            
-            if !updates.isEmpty {
-                print("SyncService: Uploading \(updates.count) progress updates to server")
-                do {
-                    let bulkResponse = try await apiClient.bulkUpdateProgress(
+        // Also find episodes that need sync but didn't have an EpisodeAction created
+        // (played before serverEpisodeId was set)
+        let episodesNeedingSyncDescriptor = FetchDescriptor<Episode>(
+            predicate: #Predicate { $0.needsSync && $0.serverEpisodeId != nil && $0.playbackPosition > 0 }
+        )
+        let episodesNeedingSync = try modelContext.fetch(episodesNeedingSyncDescriptor)
+        print("SyncService: Found \(episodesNeedingSync.count) episodes needing progress sync")
+
+        // Combine updates from both sources
+        var updates = pendingActions.compactMap { $0.toBulkProgressUpdate() }
+
+        for episode in episodesNeedingSync {
+            if let serverEpisodeId = episode.serverEpisodeId {
+                // Check if we already have an update for this episode
+                if !updates.contains(where: { $0.episodeId == serverEpisodeId }) {
+                    updates.append(BulkProgressUpdate(
+                        episodeId: serverEpisodeId,
+                        positionSeconds: Int(episode.playbackPosition),
+                        durationSeconds: Int(episode.duration ?? 0),
+                        completed: episode.isPlayed
+                    ))
+                }
+            }
+        }
+
+        if !updates.isEmpty {
+            print("SyncService: Uploading \(updates.count) progress updates to server")
+            do {
+                let bulkResponse = try await apiClient.bulkUpdateProgress(
                     serverURL: config.serverURL,
-                        apiKey: apiKey,
-                        updates: updates
+                    apiKey: apiKey,
+                    updates: updates
                 )
 
-                    // Mark successful uploads as synced
-                    for result in bulkResponse.results where result.success {
-                        if let action = pendingActions.first(where: { $0.serverEpisodeId == result.episodeId }) {
-                    action.isSynced = true
-                }
+                // Mark successful uploads as synced
+                for result in bulkResponse.results where result.success {
+                    // Mark EpisodeAction as synced
+                    if let action = pendingActions.first(where: { $0.serverEpisodeId == result.episodeId }) {
+                        action.isSynced = true
                     }
-                    print("SyncService: Progress upload completed")
-            } catch {
-                    print("SyncService: Failed to upload progress: \(error)")
+                    // Mark Episode as synced
+                    if let episode = episodesNeedingSync.first(where: { $0.serverEpisodeId == result.episodeId }) {
+                        episode.needsSync = false
+                        episode.lastSyncedAt = .now
+                    }
                 }
+                print("SyncService: Progress upload completed")
+            } catch {
+                print("SyncService: Failed to upload progress: \(error)")
             }
         }
 
@@ -593,6 +696,26 @@ final class SyncService {
         }
     }
     
+    /// Sync episode IDs for all subscribed podcasts
+    private func syncAllEpisodeIds() async throws {
+        let descriptor = FetchDescriptor<Podcast>(
+            predicate: #Predicate { $0.isSubscribed && $0.serverPodcastId != nil }
+        )
+        let podcasts = try modelContext.fetch(descriptor)
+
+        print("SyncService: Syncing episode IDs for \(podcasts.count) podcasts")
+
+        for podcast in podcasts {
+            do {
+                try await syncEpisodeIds(for: podcast)
+                print("SyncService: Synced episode IDs for: \(podcast.title)")
+            } catch {
+                print("SyncService: Failed to sync episode IDs for \(podcast.title): \(error)")
+                // Continue with other podcasts even if one fails
+            }
+        }
+    }
+
     /// Fetch and sync episode server IDs for a podcast
     func syncEpisodeIds(for podcast: Podcast) async throws {
         guard let serverPodcastId = podcast.serverPodcastId else { return }

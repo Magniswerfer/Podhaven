@@ -245,7 +245,9 @@ struct EpisodeRow: View {
             }
             
             Button {
-                episode.isPlayed.toggle()
+                Task {
+                    try? await syncService.markEpisodePlayed(episode, played: !episode.isPlayed)
+                }
             } label: {
                 Label(
                     episode.isPlayed ? "Mark as Unplayed" : "Mark as Played",
