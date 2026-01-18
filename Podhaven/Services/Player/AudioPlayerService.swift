@@ -1,4 +1,11 @@
 import AVFoundation
+
+enum SleepTimerSetting {
+    case off
+    case endOfEpisode
+    case minutes(Int)
+}
+
 import MediaPlayer
 import Observation
 
@@ -15,6 +22,8 @@ final class AudioPlayerService {
     private(set) var duration: TimeInterval = 0
     private(set) var playbackRate: Float = 1.0
     private(set) var error: Error?
+    private(set) var isSleepTimerActive = false
+    private(set) var sleepTimerEndDate: Date?
 
     // MARK: - Private Properties
 
@@ -22,6 +31,8 @@ final class AudioPlayerService {
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
     private var rateObservation: NSKeyValueObservation?
+    private var sleepTimer: Timer?
+    private var sleepTimerSetting: SleepTimerSetting = .off
     private var artworkImage: UIImage?
 
     // Callbacks for progress tracking
@@ -149,6 +160,28 @@ final class AudioPlayerService {
         updateNowPlayingInfo()
     }
 
+    /// Set a sleep timer
+    func setSleepTimer(for setting: SleepTimerSetting) {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerSetting = setting
+        isSleepTimerActive = false
+        sleepTimerEndDate = nil
+
+        switch setting {
+        case .off, .endOfEpisode:
+            isSleepTimerActive = setting == .endOfEpisode
+        case .minutes(let minutes):
+            isSleepTimerActive = true
+            let fireDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
+            sleepTimerEndDate = fireDate
+            sleepTimer = Timer.scheduledTimer(withTimeInterval: fireDate.timeIntervalSinceNow, repeats: false) { [weak self] _ in
+                self?.pause()
+                self?.setSleepTimer(for: .off)
+            }
+        }
+    }
+
     /// Stop playback and clear current episode
     func stop() {
         if let episode = currentEpisode {
@@ -164,6 +197,7 @@ final class AudioPlayerService {
         isPlaying = false
         isBuffering = false
         artworkImage = nil
+        setSleepTimer(for: .off)
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         
@@ -423,6 +457,11 @@ final class AudioPlayerService {
                 await onPlaybackCompleted?(episode)
                 await onPositionUpdate?(episode, episode.duration ?? 0)
             }
+        }
+
+        if case .endOfEpisode = sleepTimerSetting {
+            pause()
+            setSleepTimer(for: .off)
         }
         
         updateNowPlayingInfo()

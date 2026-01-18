@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct QueueView: View {
+struct QueuePlaylistsView: View {
     @Environment(SyncService.self) private var syncService
     @Query private var queueItems: [QueueItem]
 
@@ -16,6 +17,7 @@ struct QueueView: View {
         NavigationStack {
             Group {
                 if queueItems.isEmpty && !isLoading {
+                if queueItems.isEmpty {
                     emptyQueueView
                 } else {
                     queueList
@@ -39,9 +41,11 @@ struct QueueView: View {
             }
             .task {
                 await loadQueue()
+                await syncService.getQueue()
             }
             .refreshable {
                 await loadQueue()
+                await syncService.getQueue()
             }
         }
     }
@@ -97,6 +101,7 @@ struct QueueView: View {
             self.error = error
             print("Failed to clear queue: \(error)")
         }
+        await syncService.clearQueue()
     }
 
     private func removeFromQueue(_ item: QueueItem) async {
@@ -106,6 +111,7 @@ struct QueueView: View {
             self.error = error
             print("Failed to remove from queue: \(error)")
         }
+        await syncService.removeFromQueue(queueItem: item)
     }
 
     private func reorderQueue(from source: IndexSet, to destination: Int) async {
@@ -119,6 +125,11 @@ struct QueueView: View {
             print("Failed to reorder queue: \(error)")
         }
     }
+}
+
+struct QueueView: View {
+    // This is now a placeholder. The main logic is in QueuePlaylistsView.
+    var body: some View { QueuePlaylistsView() }
 }
 
 // MARK: - Queue Item Row
@@ -194,5 +205,6 @@ struct QueueItemRow: View {
 
 #Preview {
     QueueView()
+    QueuePlaylistsView()
         .environment(SyncService.preview)
 }
