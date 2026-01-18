@@ -90,6 +90,26 @@ enum DownloadState: String, Codable {
     case failed
 }
 
+// MARK: - Static Formatters
+
+extension Episode {
+    /// Shared formatter for durations under 1 hour (minutes:seconds)
+    private static let shortDurationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.minute, .second]
+        formatter.zeroFormattingBehavior = .pad
+        return formatter
+    }()
+
+    /// Shared formatter for durations 1 hour or more (hours:minutes:seconds)
+    private static let longDurationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.zeroFormattingBehavior = .pad
+        return formatter
+    }()
+}
+
 // MARK: - Computed Properties
 
 extension Episode {
@@ -100,13 +120,11 @@ extension Episode {
         }
         return URL(string: audioURL)
     }
-    
-    /// Formatted duration string
+
+    /// Formatted duration string using cached formatters
     var formattedDuration: String? {
         guard let duration = duration else { return nil }
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = duration >= 3600 ? [.hour, .minute, .second] : [.minute, .second]
-        formatter.zeroFormattingBehavior = .pad
+        let formatter = duration >= 3600 ? Self.longDurationFormatter : Self.shortDurationFormatter
         return formatter.string(from: duration)
     }
     

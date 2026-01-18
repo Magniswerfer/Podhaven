@@ -2,18 +2,31 @@ import Foundation
 import SwiftData
 import Observation
 
+/// Sync mode determines what data is synchronized
+enum SyncMode {
+    /// Full sync: subscriptions, episodes, and progress
+    case full
+    /// Quick sync: only progress data (faster, less network usage)
+    case quick
+    /// Smart sync: automatically chooses based on time since last full sync
+    case smart
+}
+
 /// Service for syncing with the podcast sync server
 @Observable
 @MainActor
 final class SyncService {
     // MARK: - State
-    
+
     private(set) var isSyncing = false
     private(set) var lastError: Error?
     private(set) var syncProgress: String = ""
-    
+
+    /// Interval between full syncs when using smart mode (30 minutes)
+    private let fullSyncInterval: TimeInterval = 30 * 60
+
     // MARK: - Dependencies
-    
+
     private let apiClient: PodcastServiceAPIClientProtocol
     private let modelContext: ModelContext
     private let rssParser: RSSParserProtocol
@@ -34,9 +47,10 @@ final class SyncService {
     }
     
     // MARK: - Public Methods
-    
-    /// Perform a full sync with the server
-    func performSync() async throws {
+
+    /// Perform sync with the server using specified mode
+    /// - Parameter mode: The sync mode to use (default: .smart)
+    func performSync(mode: SyncMode = .smart) async throws {
         guard !isSyncing else { return }
 
         isSyncing = true
@@ -52,20 +66,32 @@ final class SyncService {
         let syncState = try getSyncState()
         syncState.markSyncStarted()
 
+        // Determine actual sync mode for smart mode
+        let effectiveMode: SyncMode
+        switch mode {
+        case .smart:
+            effectiveMode = shouldPerformFullSync(syncState: syncState) ? .full : .quick
+        case .full, .quick:
+            effectiveMode = mode
+        }
+
+        print("SyncService: Starting \(effectiveMode == .full ? "full" : "quick") sync")
+
         do {
-            // Sync subscriptions
-            syncProgress = "Syncing subscriptions..."
-            print("SyncService: Starting subscription sync")
-            try await syncSubscriptions(config: config, apiKey: apiKey, syncState: syncState)
-            print("SyncService: Subscription sync completed")
+            if effectiveMode == .full {
+                // Full sync: subscriptions, episodes, and progress
+                syncProgress = "Syncing subscriptions..."
+                print("SyncService: Starting subscription sync")
+                try await syncSubscriptions(config: config, apiKey: apiKey, syncState: syncState)
+                print("SyncService: Subscription sync completed")
 
-            // Sync episode IDs for all subscribed podcasts
-            syncProgress = "Syncing episode data..."
-            print("SyncService: Starting episode ID sync")
-            try await syncAllEpisodeIds()
-            print("SyncService: Episode ID sync completed")
+                syncProgress = "Syncing episode data..."
+                print("SyncService: Starting episode ID sync")
+                try await syncAllEpisodeIds()
+                print("SyncService: Episode ID sync completed")
+            }
 
-            // Sync progress
+            // Always sync progress
             syncProgress = "Syncing listening progress..."
             print("SyncService: Starting progress sync")
             try await syncProgress(config: config, apiKey: apiKey, syncState: syncState)
@@ -73,7 +99,7 @@ final class SyncService {
 
             syncState.markSyncCompleted()
             syncProgress = "Sync complete"
-            print("SyncService: Sync completed successfully")
+            print("SyncService: \(effectiveMode == .full ? "Full" : "Quick") sync completed successfully")
 
             try modelContext.save()
         } catch {
@@ -83,6 +109,16 @@ final class SyncService {
             try? modelContext.save()
             throw error
         }
+    }
+
+    /// Determines if a full sync should be performed based on time since last full sync
+    private func shouldPerformFullSync(syncState: SyncState) -> Bool {
+        guard let lastSubscriptionSync = syncState.lastSubscriptionSync else {
+            // Never synced subscriptions, need full sync
+            return true
+        }
+        let timeSinceLastFullSync = Date().timeIntervalSince(lastSubscriptionSync)
+        return timeSinceLastFullSync >= fullSyncInterval
     }
     
     /// Register a new account

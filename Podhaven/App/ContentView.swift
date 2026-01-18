@@ -50,16 +50,16 @@ struct ContentView: View {
             }
         }
         .task {
-            // Sync on app launch
-            await performSyncIfNeeded()
+            // Full sync on app launch
+            await performSyncIfNeeded(mode: .full)
             startPeriodicSync()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             switch newPhase {
             case .active:
-                // App became active - sync and start timer
+                // App became active - smart sync and start timer
                 Task {
-                    await performSyncIfNeeded()
+                    await performSyncIfNeeded(mode: .smart)
                 }
                 startPeriodicSync()
             case .background:
@@ -77,9 +77,9 @@ struct ContentView: View {
         }
     }
 
-    private func performSyncIfNeeded() async {
+    private func performSyncIfNeeded(mode: SyncMode = .smart) async {
         do {
-            try await syncService.performSync()
+            try await syncService.performSync(mode: mode)
         } catch {
             print("ContentView: Sync failed: \(error)")
         }
@@ -102,10 +102,10 @@ struct ContentView: View {
 
     private func startPeriodicSync() {
         stopPeriodicSync()
-        // Sync every 5 minutes while app is active
+        // Quick sync every 5 minutes while app is active (smart mode will upgrade to full if needed)
         syncTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
             Task { @MainActor in
-                await performSyncIfNeeded()
+                await performSyncIfNeeded(mode: .smart)
             }
         }
     }
