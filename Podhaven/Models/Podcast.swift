@@ -27,6 +27,9 @@ final class Podcast {
     var customEpisodeFilter: String?
     var customEpisodeSort: String?
     
+    /// Image cache
+    var cachedArtworkPath: String?
+    
     /// Relationships
     @Relationship(deleteRule: .cascade, inverse: \Episode.podcast)
     var episodes: [Episode]
@@ -83,6 +86,17 @@ extension Podcast {
     
     var downloadedEpisodes: [Episode] {
         episodes.filter { $0.downloadState == .downloaded }
+    }
+    
+    /// Effective artwork URL - uses cached path if available, otherwise remote URL
+    var effectiveArtworkURL: String? {
+        // Use cached path if available
+        if let cachedPath = cachedArtworkPath {
+            let url = URL(fileURLWithPath: cachedPath)
+            return url.absoluteString
+        }
+        // Otherwise use remote artwork URL
+        return artworkURL
     }
 }
 

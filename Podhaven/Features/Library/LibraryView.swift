@@ -165,24 +165,6 @@ struct LibraryView: View {
     private var podcastGrid: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Continue Listening section
-                if !inProgressEpisodes.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Continue Listening")
-                            .font(.title2)
-                            .fontWeight(.bold)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
-                                ForEach(inProgressEpisodes.prefix(5)) { episode in
-                                    ContinueListeningCard(episode: episode)
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-                }
-
                 // Podcasts section
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Podcasts")
@@ -207,13 +189,6 @@ struct LibraryView: View {
             .padding(.vertical)
         }
     }
-
-    private var inProgressEpisodes: [Episode] {
-        podcasts
-            .flatMap { $0.episodes }
-            .filter { !$0.isPlayed && $0.playbackPosition > 0 }
-            .sorted { ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast) }
-    }
     
     private func refreshAllPodcasts() async {
         isRefreshing = true
@@ -233,7 +208,7 @@ struct PodcastGridItem: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Artwork
-            AsyncImage(url: URL(string: podcast.artworkURL ?? "")) { phase in
+            AsyncImage(url: URL(string: podcast.effectiveArtworkURL ?? "")) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -255,19 +230,22 @@ struct PodcastGridItem: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
             
-            // Title
-            Text(podcast.title)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            
-            // Unplayed count
-            if podcast.unplayedCount > 0 {
-                Text("\(podcast.unplayedCount) unplayed")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // Text container with fixed height
+            VStack(alignment: .leading, spacing: 4) {
+                Text(podcast.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(height: 38, alignment: .topLeading) // Fixed height for 2 lines
+                
+                if podcast.unplayedCount > 0 {
+                    Text("\(podcast.unplayedCount) unplayed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     

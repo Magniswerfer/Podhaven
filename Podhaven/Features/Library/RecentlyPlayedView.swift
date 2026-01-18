@@ -75,6 +75,69 @@ struct RecentlyPlayedView: View {
     }
 }
 
+struct RecentlyPlayedRow: View {
+    let record: ProgressRecord
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Podcast artwork placeholder (progress records don't include artwork)
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 50, height: 50)
+                .overlay(
+                    Image(systemName: "headphones")
+                        .foregroundColor(.secondary)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.episode?.title ?? "Unknown Episode")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                Text(record.episode?.podcast?.title ?? "Unknown Podcast")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+
+                // Progress indicator
+                if record.durationSeconds > 0 {
+                    let progress = min(Double(record.positionSeconds) / Double(record.durationSeconds), 1.0)
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(height: 3)
+                            Rectangle()
+                                .fill(Color.accentColor)
+                                .frame(width: geometry.size.width * progress, height: 3)
+                        }
+                    }
+                    .frame(height: 3)
+                }
+
+                Text(formatProgress(record.positionSeconds, total: record.durationSeconds))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+
+    private func formatProgress(_ position: Int, total: Int) -> String {
+        let positionTime = formatTime(TimeInterval(position))
+        let totalTime = formatTime(TimeInterval(total))
+        return "\(positionTime) / \(totalTime)"
+    }
+
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
 #Preview {
     RecentlyPlayedView()
         .environment(SyncService.preview)

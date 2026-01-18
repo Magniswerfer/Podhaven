@@ -17,17 +17,20 @@ final class SyncService {
     private let apiClient: PodcastServiceAPIClientProtocol
     private let modelContext: ModelContext
     private let rssParser: RSSParserProtocol
+    private let imageCacheService: ImageCacheService
     
     // MARK: - Initialization
     
     init(
         apiClient: PodcastServiceAPIClientProtocol,
         modelContext: ModelContext,
-        rssParser: RSSParserProtocol = RSSParser()
+        rssParser: RSSParserProtocol = RSSParser(),
+        imageCacheService: ImageCacheService = ImageCacheService()
     ) {
         self.apiClient = apiClient
         self.modelContext = modelContext
         self.rssParser = rssParser
+        self.imageCacheService = imageCacheService
     }
     
     // MARK: - Public Methods
@@ -369,10 +372,16 @@ final class SyncService {
         let parsed = try await rssParser.parseFeed(from: url)
         
         // Update podcast metadata
+        let previousArtworkURL = podcast.artworkURL
         podcast.title = parsed.title
         podcast.author = parsed.author
         podcast.podcastDescription = parsed.description
         podcast.artworkURL = parsed.artworkURL
+        
+        // Cache artwork if URL changed
+        if podcast.artworkURL != previousArtworkURL {
+            await cacheArtworkIfNeeded(for: podcast)
+        }
         
         // Add new episodes
         let existingGUIDs = Set(podcast.episodes.map { $0.guid })
@@ -396,6 +405,12 @@ final class SyncService {
             )
             episode.podcast = podcast
             modelContext.insert(episode)
+            
+            // Cache artwork for new episode
+            if let artworkURL = episode.artworkURL ?? parsed.artworkURL {
+                episode.artworkURL = artworkURL
+                await cacheArtworkIfNeeded(for: episode)
+            }
         }
         
         podcast.lastUpdated = .now
@@ -516,6 +531,46 @@ final class SyncService {
         let state = SyncState()
         modelContext.insert(state)
         return state
+    }
+    
+    /// Cache artwork for a podcast if URL changed or not cached
+    private func cacheArtworkIfNeeded(for podcast: Podcast) async {
+        guard let artworkURL = podcast.artworkURL else { return }
+        
+        // Check if artwork URL changed
+        let artworkURLChanged = podcast.cachedArtworkPath == nil ||
+            (podcast.cachedArtworkPath != nil && !FileManager.default.fileExists(atPath: podcast.cachedArtworkPath!))
+        
+        if artworkURLChanged {
+            do {
+                if let cachedURL = try await imageCacheService.cacheImage(for: artworkURL, type: .podcast) {
+                    podcast.cachedArtworkPath = cachedURL.path
+                }
+            } catch {
+                print("SyncService: Failed to cache artwork for podcast \(podcast.title): \(error)")
+                // Continue without caching - will use remote URL
+            }
+        }
+    }
+    
+    /// Cache artwork for an episode if URL changed or not cached
+    private func cacheArtworkIfNeeded(for episode: Episode) async {
+        guard let artworkURL = episode.artworkURL ?? episode.podcast?.artworkURL else { return }
+        
+        // Check if artwork URL changed
+        let artworkURLChanged = episode.cachedArtworkPath == nil ||
+            (episode.cachedArtworkPath != nil && !FileManager.default.fileExists(atPath: episode.cachedArtworkPath!))
+        
+        if artworkURLChanged {
+            do {
+                if let cachedURL = try await imageCacheService.cacheImage(for: artworkURL, type: .episode) {
+                    episode.cachedArtworkPath = cachedURL.path
+                }
+            } catch {
+                print("SyncService: Failed to cache artwork for episode \(episode.title): \(error)")
+                // Continue without caching - will use remote URL
+            }
+        }
     }
     
     private func syncSubscriptions(
@@ -814,6 +869,19 @@ final class SyncService {
             if let localEpisode = podcast.episodes.first(where: { $0.audioURL == audioURL }) {
                 if localEpisode.serverEpisodeId == nil {
                     localEpisode.serverEpisodeId = serverEpisode.id
+                }
+                
+                // Update artwork URL if provided by server and different
+                let previousArtworkURL = localEpisode.artworkURL
+                if let serverArtworkURL = serverEpisode.artworkUrl ?? serverEpisode.podcast?.artworkUrl {
+                    if localEpisode.artworkURL != serverArtworkURL {
+                        localEpisode.artworkURL = serverArtworkURL
+                    }
+                }
+                
+                // Cache artwork if URL changed or not cached
+                if localEpisode.artworkURL != previousArtworkURL {
+                    await cacheArtworkIfNeeded(for: localEpisode)
                 }
                 
                 // Apply progress if available

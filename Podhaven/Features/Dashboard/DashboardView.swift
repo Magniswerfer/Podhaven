@@ -1,10 +1,15 @@
 import SwiftUI
+import SwiftData
 
 struct DashboardView: View {
     @Environment(SyncService.self) private var syncService
+    @Environment(\.modelContext) private var modelContext
+    
+    @Query(filter: #Predicate<Episode> { !$0.isPlayed && $0.playbackPosition > 0 }, sort: \Episode.lastPlayedAt, order: .reverse)
+    private var inProgressEpisodes: [Episode]
+    
     @State private var dashboardStats: DashboardStats?
     @State private var newEpisodes: [APIEpisode] = []
-    @State private var recentlyPlayed: [ProgressRecord] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -35,9 +40,9 @@ struct DashboardView: View {
                         }
                         .padding(.top, 50)
                     } else {
-                        statsSection
                         recentlyPlayedSection
                         newEpisodesSection
+                        statsSection
                     }
                 }
                 .padding(.horizontal)
@@ -92,13 +97,14 @@ struct DashboardView: View {
     }
 
     private var recentlyPlayedSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Recently Played")
-                    .font(.headline)
+                Text("Continue Listening")
+                    .font(.title2)
+                    .fontWeight(.bold)
                 Spacer()
-                if !recentlyPlayed.isEmpty {
-                    NavigationLink(destination: RecentlyPlayedView()) {
+                if !inProgressEpisodes.isEmpty {
+                    NavigationLink(destination: ProgressView()) {
                         Text("See All")
                             .font(.subheadline)
                             .foregroundColor(.accentColor)
@@ -106,17 +112,20 @@ struct DashboardView: View {
                 }
             }
 
-            if recentlyPlayed.isEmpty {
+            if inProgressEpisodes.isEmpty {
                 EmptyStateView(
                     icon: "headphones",
                     title: "No recent activity",
                     message: "Start listening to see your recently played episodes here"
                 )
             } else {
-                VStack(spacing: 12) {
-                    ForEach(recentlyPlayed.prefix(3)) { record in
-                        RecentlyPlayedRow(record: record)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(inProgressEpisodes.prefix(5)) { episode in
+                            ContinueListeningCard(episode: episode)
+                        }
                     }
+                    .padding(.horizontal)
                 }
             }
         }
@@ -172,12 +181,8 @@ struct DashboardView: View {
             )
             newEpisodes = newEpisodesResponse.episodes
 
-            // Load recently played (get progress and sort by last updated)
-            let progressResponse = try await syncService.getProgress()
-            recentlyPlayed = progressResponse.progress
-                .sorted(by: { $0.lastUpdatedAt > $1.lastUpdatedAt })
-                .prefix(5)
-                .map { $0 }
+            // Recently played now uses local in-progress episodes via @Query
+            // No API call needed
 
         } catch {
             errorMessage = error.localizedDescription
@@ -224,69 +229,6 @@ struct StatCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.thinMaterial)
         .cornerRadius(12)
-    }
-}
-
-struct RecentlyPlayedRow: View {
-    let record: ProgressRecord
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Podcast artwork placeholder (progress records don't include artwork)
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Image(systemName: "headphones")
-                        .foregroundColor(.secondary)
-                )
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(record.episode?.title ?? "Unknown Episode")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-
-                Text(record.episode?.podcast?.title ?? "Unknown Podcast")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-
-                // Progress indicator
-                if record.durationSeconds > 0 {
-                    let progress = min(Double(record.positionSeconds) / Double(record.durationSeconds), 1.0)
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(height: 3)
-                            Rectangle()
-                                .fill(Color.accentColor)
-                                .frame(width: geometry.size.width * progress, height: 3)
-                        }
-                    }
-                    .frame(height: 3)
-                }
-
-                Text(formatProgress(record.positionSeconds, total: record.durationSeconds))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-    }
-
-    private func formatProgress(_ position: Int, total: Int) -> String {
-        let positionTime = formatTime(TimeInterval(position))
-        let totalTime = formatTime(TimeInterval(total))
-        return "\(positionTime) / \(totalTime)"
-    }
-
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 

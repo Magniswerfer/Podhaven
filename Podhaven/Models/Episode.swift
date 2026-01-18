@@ -32,6 +32,9 @@ final class Episode {
     var localFileURL: String?
     var downloadProgress: Double
     
+    /// Image cache
+    var cachedArtworkPath: String?
+    
     /// Sync state
     var needsSync: Bool
     var lastSyncedAt: Date?
@@ -119,9 +122,15 @@ extension Episode {
         return playbackPosition / duration
     }
     
-    /// Effective artwork URL - falls back to podcast artwork
+    /// Effective artwork URL - uses cached path if available, otherwise falls back to podcast artwork
     var effectiveArtworkURL: String? {
-        artworkURL ?? podcast?.artworkURL
+        // Use cached path if available
+        if let cachedPath = cachedArtworkPath {
+            let url = URL(fileURLWithPath: cachedPath)
+            return url.absoluteString
+        }
+        // Otherwise use episode or podcast artwork URL
+        return artworkURL ?? podcast?.artworkURL
     }
 }
 
