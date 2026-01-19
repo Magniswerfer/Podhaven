@@ -90,8 +90,8 @@ extension Podcast {
     
     /// Effective artwork URL - uses cached path if available, otherwise remote URL
     var effectiveArtworkURL: String? {
-        // Use cached path if available
-        if let cachedPath = cachedArtworkPath {
+        // Use cached path if available and file exists
+        if let cachedPath = cachedArtworkPath, FileManager.default.fileExists(atPath: cachedPath) {
             let url = URL(fileURLWithPath: cachedPath)
             return url.absoluteString
         }

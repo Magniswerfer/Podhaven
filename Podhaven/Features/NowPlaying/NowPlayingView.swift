@@ -1,45 +1,56 @@
-import SwiftUI
-import WebKit
 import AVKit
+import SwiftUI
 
 struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(SyncService.self) private var syncService
 
     @State private var isDraggingSlider = false
     @State private var sliderValue: Double = 0
     @State private var artworkScale: CGFloat = 1.0
-    @State private var scrollOffset: CGFloat = 0
 
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
                 ZStack {
-                    // Animated gradient background
+                    // Animated gradient background - extends to all edges
                     backgroundGradient
 
                     VStack(spacing: 0) {
+                        // Drag indicator at top
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.5))
+                            .frame(width: 36, height: 5)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+
                         // Scrollable content area
                         ScrollView {
+                            // Calculate available height above controls
+                            // Controls overlay is ~220pt + safe area bottom (~34pt)
+                            // Reserve space for: top padding (12) + artwork + spacing (16) + episode info (~70) + scroll hint (~50)
+                            let controlsHeight: CGFloat = 254
+                            let availableHeight = geometry.size.height - controlsHeight
+                            let otherContentHeight: CGFloat = 148 // top padding + spacing + episode info + scroll hint
+                            let maxArtworkSize = min(geometry.size.width - 64, availableHeight - otherContentHeight, 260)
+                            
                             VStack(spacing: 0) {
                                 Spacer()
-                                    .frame(height: 20)
+                                    .frame(height: 12)
 
                                 // Artwork with glass frame
                                 artworkView
-                                    .frame(width: max(0, min(geometry.size.width - 64, 320)))
+                                    .frame(width: max(0, maxArtworkSize))
                                     .scaleEffect(artworkScale)
-                                    .animation(.smooth(duration: 0.3), value: playerService.isPlaying)
                                     .onChange(of: playerService.isPlaying) { _, isPlaying in
-                                        withAnimation(.smooth(duration: 0.3)) {
+                                        withAnimation(.easeOut(duration: 0.3)) {
                                             artworkScale = isPlaying ? 1.0 : 0.92
                                         }
                                     }
 
                                 Spacer()
-                                    .frame(height: 24)
+                                    .frame(height: 16)
 
                                 // Episode Info
                                 episodeInfo
@@ -47,7 +58,7 @@ struct NowPlayingView: View {
 
                                 // Scroll hint for show notes
                                 scrollHint
-                                    .padding(.top, 20)
+                                    .padding(.top, 12)
 
                                 // Show Notes Content (revealed by scrolling)
                                 showNotesSection
@@ -70,6 +81,7 @@ struct NowPlayingView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -93,7 +105,8 @@ struct NowPlayingView: View {
 
                             Button {
                                 Task {
-                                    try? await syncService.markEpisodePlayed(episode, played: !episode.isPlayed)
+                                    try? await syncService.markEpisodePlayed(
+                                        episode, played: !episode.isPlayed)
                                 }
                             } label: {
                                 Label(
@@ -126,16 +139,16 @@ struct NowPlayingView: View {
             extrasView
                 .padding(.horizontal, 24)
         }
-        .padding(.vertical, 24)
+        .padding(.vertical, 16)
         .background {
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
         }
     }
-    
+
     // MARK: - Background
-    
+
     private var backgroundGradient: some View {
         ZStack {
             // Base gradient
@@ -143,28 +156,28 @@ struct NowPlayingView: View {
                 colors: [
                     Color.accentColor.opacity(0.25),
                     Color.accentColor.opacity(0.1),
-                    Color(.systemBackground)
+                    Color(.systemBackground),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            
+
             // Animated blur overlay
             Circle()
                 .fill(Color.accentColor.opacity(0.2))
                 .blur(radius: 100)
                 .offset(x: -50, y: -100)
-            
+
             Circle()
                 .fill(Color.purple.opacity(0.15))
                 .blur(radius: 80)
                 .offset(x: 80, y: 200)
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(.all)
     }
-    
+
     // MARK: - Artwork
-    
+
     @ViewBuilder
     private var artworkView: some View {
         if let episode = playerService.currentEpisode {
@@ -173,7 +186,7 @@ struct NowPlayingView: View {
                 case .success(let image):
                     image
                         .resizable()
-                        .aspectRatio(1, contentMode: .fit)
+                        .scaledToFill()
                 case .failure:
                     artworkPlaceholder
                 case .empty:
@@ -185,28 +198,28 @@ struct NowPlayingView: View {
                     artworkPlaceholder
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .shadow(color: .black.opacity(0.25), radius: 30, y: 15)
             .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
             }
         }
     }
-    
+
     private var artworkPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
+        Rectangle()
             .fill(.ultraThinMaterial)
-            .aspectRatio(1, contentMode: .fit)
             .overlay {
                 Image(systemName: "waveform")
                     .font(.system(size: 60, weight: .light))
                     .foregroundStyle(.secondary)
             }
     }
-    
+
     // MARK: - Episode Info
-    
+
     @ViewBuilder
     private var episodeInfo: some View {
         if let episode = playerService.currentEpisode {
@@ -216,7 +229,7 @@ struct NowPlayingView: View {
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                
+
                 Text(episode.podcast?.title ?? "")
                     .font(.subheadline)
                     .fontWeight(.medium)
@@ -224,24 +237,24 @@ struct NowPlayingView: View {
             }
         }
     }
-    
+
     // MARK: - Scroll Hint
-    
+
     private var scrollHint: some View {
         VStack(spacing: 4) {
             Image(systemName: "chevron.down")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            
+
             Text("Scroll for show notes")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 8)
     }
-    
+
     // MARK: - Show Notes Section
-    
+
     @ViewBuilder
     private var showNotesSection: some View {
         if let episode = playerService.currentEpisode {
@@ -255,30 +268,37 @@ struct NowPlayingView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 8)
-                
-                // Show notes content
+
+                // Show notes content - native rendering
                 if let html = episode.showNotesHTML, !html.isEmpty {
-                    InlineShowNotesView(html: html, isDarkMode: colorScheme == .dark)
-                        .frame(minHeight: 200)
+                    NativeShowNotesView(html: html)
+                        .padding(16)
+                        .background(
+                            .ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 } else if let description = episode.episodeDescription, !description.isEmpty {
                     Text(description)
                         .font(.body)
                         .foregroundStyle(.primary)
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(
+                            .ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 } else {
                     Text("No show notes available for this episode.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(
+                            .ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
         }
     }
-    
+
     // MARK: - Progress
 
     private var progressView: some View {
@@ -314,15 +334,22 @@ struct NowPlayingView: View {
 
                 Spacer()
 
-                Text("-" + formatTime(max(0, playerService.duration - (isDraggingSlider ? sliderValue : playerService.currentTime))))
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                Text(
+                    "-"
+                        + formatTime(
+                            max(
+                                0,
+                                playerService.duration
+                                    - (isDraggingSlider ? sliderValue : playerService.currentTime)))
+                )
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
             }
         }
     }
-    
+
     // MARK: - Controls
 
     private var controlsView: some View {
@@ -368,7 +395,7 @@ struct NowPlayingView: View {
             .frame(width: 56, height: 56)
         }
     }
-    
+
     // MARK: - Extras
 
     private var extrasView: some View {
@@ -415,14 +442,14 @@ struct NowPlayingView: View {
                 .frame(width: 44, height: 44)
         }
     }
-    
+
     // MARK: - Helpers
-    
+
     private func formatTime(_ time: TimeInterval) -> String {
         let hours = Int(time) / 3600
         let minutes = Int(time) / 60 % 60
         let seconds = Int(time) % 60
-        
+
         if hours > 0 {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
@@ -430,152 +457,117 @@ struct NowPlayingView: View {
     }
 }
 
-// MARK: - Inline Show Notes View (for scrollable content)
+// MARK: - Native Show Notes View
 
-struct InlineShowNotesView: UIViewRepresentable {
+struct NativeShowNotesView: View {
     let html: String
-    let isDarkMode: Bool
-    
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.allowsInlineMediaPlayback = true
-        
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-        webView.navigationDelegate = context.coordinator
-        
-        return webView
+
+    private var paragraphs: [String] {
+        html.htmlToMarkdown()
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
-    
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        let styledHTML = wrapHTMLWithStyles(html)
-        webView.loadHTMLString(styledHTML, baseURL: nil)
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-    
-    private func wrapHTMLWithStyles(_ content: String) -> String {
-        let backgroundColor = isDarkMode ? "transparent" : "transparent"
-        let textColor = isDarkMode ? "#ffffff" : "#000000"
-        let secondaryColor = isDarkMode ? "#8e8e93" : "#6c6c70"
-        let linkColor = isDarkMode ? "#0a84ff" : "#007aff"
-        let codeBackground = isDarkMode ? "#2c2c2e" : "#f2f2f7"
-        
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            <style>
-                * {
-                    box-sizing: border-box;
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                // Handle line breaks within paragraphs
+                let lines = paragraph.components(separatedBy: "\n")
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(attributedLine(line))
+                            .font(.body)
+                    }
                 }
-                
-                html, body {
-                    margin: 0;
-                    padding: 0;
-                    background-color: \(backgroundColor);
-                    color: \(textColor);
-                    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-                    font-size: 16px;
-                    line-height: 1.5;
-                    -webkit-text-size-adjust: 100%;
-                }
-                
-                body {
-                    padding: 16px;
-                }
-                
-                h1, h2, h3, h4, h5, h6 {
-                    font-weight: 600;
-                    margin-top: 20px;
-                    margin-bottom: 10px;
-                    line-height: 1.3;
-                }
-                
-                h1 { font-size: 24px; }
-                h2 { font-size: 20px; }
-                h3 { font-size: 18px; }
-                
-                p {
-                    margin: 0 0 14px 0;
-                }
-                
-                a {
-                    color: \(linkColor);
-                    text-decoration: none;
-                }
-                
-                ul, ol {
-                    padding-left: 20px;
-                    margin: 0 0 14px 0;
-                }
-                
-                li {
-                    margin-bottom: 6px;
-                }
-                
-                blockquote {
-                    margin: 14px 0;
-                    padding: 10px 14px;
-                    border-left: 3px solid \(linkColor);
-                    background-color: \(codeBackground);
-                    border-radius: 4px;
-                }
-                
-                code {
-                    font-family: 'SF Mono', Menlo, monospace;
-                    font-size: 14px;
-                    background-color: \(codeBackground);
-                    padding: 2px 5px;
-                    border-radius: 3px;
-                }
-                
-                img {
-                    max-width: 100%;
-                    height: auto;
-                    border-radius: 8px;
-                    margin: 8px 0;
-                }
-                
-                hr {
-                    border: none;
-                    border-top: 1px solid \(secondaryColor);
-                    margin: 20px 0;
-                    opacity: 0.3;
-                }
-            </style>
-        </head>
-        <body>
-            \(content)
-        </body>
-        </html>
-        """
-    }
-    
-    class Coordinator: NSObject, WKNavigationDelegate {
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction,
-            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
-        ) {
-            if navigationAction.navigationType == .linkActivated,
-               let url = navigationAction.request.url {
-                UIApplication.shared.open(url)
-                decisionHandler(.cancel)
-                return
             }
-            decisionHandler(.allow)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .tint(.accentColor)
+    }
+
+    /// Parse a line as Markdown, fallback to plain text
+    private func attributedLine(_ line: String) -> AttributedString {
+        if let attributed = try? AttributedString(
+            markdown: line, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        {
+            return attributed
+        }
+        return AttributedString(line)
     }
 }
 
+// MARK: - String HTML Extension
 
+extension String {
+    /// Convert HTML to Markdown for native SwiftUI rendering (instant, no WebKit)
+    func htmlToMarkdown() -> String {
+        var text = self
+
+        // Convert links: <a href="url">text</a> -> [text](url)
+        // Must be done before stripping tags
+        text = text.replacingOccurrences(
+            of: "<a[^>]*href=[\"']([^\"']*)[\"'][^>]*>(.*?)</a>",
+            with: "[$2]($1)",
+            options: .regularExpression
+        )
+
+        // Convert bold: <b>text</b>, <strong>text</strong> -> **text**
+        text = text.replacingOccurrences(
+            of: "<b[^>]*>(.*?)</b>",
+            with: "**$1**",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "<strong[^>]*>(.*?)</strong>",
+            with: "**$1**",
+            options: .regularExpression
+        )
+
+        // Convert italic: <i>text</i>, <em>text</em> -> *text*
+        text = text.replacingOccurrences(
+            of: "<i[^>]*>(.*?)</i>",
+            with: "*$1*",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "<em[^>]*>(.*?)</em>",
+            with: "*$1*",
+            options: .regularExpression
+        )
+
+        // Replace block elements with newlines
+        // \n\n = paragraph break, \n = line break within paragraph
+        text = text.replacingOccurrences(of: "<br[^>]*>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "</p>", with: "\n\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "</div>", with: "\n\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "</li>", with: "\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "<li[^>]*>", with: "• ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "</h[1-6]>", with: "\n\n", options: .regularExpression)
+
+        // Strip all remaining HTML tags
+        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+
+        // Decode common HTML entities
+        text = text.replacingOccurrences(of: "&nbsp;", with: " ")
+        text = text.replacingOccurrences(of: "&amp;", with: "&")
+        text = text.replacingOccurrences(of: "&lt;", with: "<")
+        text = text.replacingOccurrences(of: "&gt;", with: ">")
+        text = text.replacingOccurrences(of: "&quot;", with: "\"")
+        text = text.replacingOccurrences(of: "&#39;", with: "'")
+        text = text.replacingOccurrences(of: "&apos;", with: "'")
+        text = text.replacingOccurrences(of: "&#x27;", with: "'")
+        text = text.replacingOccurrences(of: "&mdash;", with: "—")
+        text = text.replacingOccurrences(of: "&ndash;", with: "–")
+        text = text.replacingOccurrences(of: "&hellip;", with: "…")
+
+        // Clean up excessive newlines only (preserve spaces for Markdown line breaks)
+        text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return text
+    }
+}
 
 // MARK: - AirPlay Button
 

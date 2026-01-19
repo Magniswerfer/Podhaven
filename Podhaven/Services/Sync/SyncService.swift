@@ -38,12 +38,12 @@ final class SyncService {
         apiClient: PodcastServiceAPIClientProtocol,
         modelContext: ModelContext,
         rssParser: RSSParserProtocol = RSSParser(),
-        imageCacheService: ImageCacheService = ImageCacheService()
+        imageCacheService: ImageCacheService? = nil
     ) {
         self.apiClient = apiClient
         self.modelContext = modelContext
         self.rssParser = rssParser
-        self.imageCacheService = imageCacheService
+        self.imageCacheService = imageCacheService ?? ImageCacheService()
     }
     
     // MARK: - Public Methods

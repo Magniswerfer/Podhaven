@@ -3,11 +3,12 @@ import SwiftData
 
 struct DashboardView: View {
     @Environment(SyncService.self) private var syncService
+    @Environment(AudioPlayerService.self) private var playerService
     @Environment(\.modelContext) private var modelContext
-    
+
     @Query(filter: #Predicate<Episode> { !$0.isPlayed && $0.playbackPosition > 0 }, sort: \Episode.lastPlayedAt, order: .reverse)
     private var inProgressEpisodes: [Episode]
-    
+
     @State private var dashboardStats: DashboardStats?
     @State private var newEpisodes: [APIEpisode] = []
     @State private var isLoading = true
@@ -39,13 +40,14 @@ struct DashboardView: View {
                             .buttonStyle(.bordered)
                         }
                         .padding(.top, 50)
+                        .padding(.horizontal)
                     } else {
                         recentlyPlayedSection
                         newEpisodesSection
                         statsSection
+                            .padding(.horizontal)
                     }
                 }
-                .padding(.horizontal)
                 .padding(.bottom, 100) // Space for mini player
             }
             .navigationTitle("Dashboard")
@@ -104,13 +106,14 @@ struct DashboardView: View {
                     .fontWeight(.bold)
                 Spacer()
                 if !inProgressEpisodes.isEmpty {
-                    NavigationLink(destination: ProgressView()) {
+                    NavigationLink(destination: ListeningProgressView()) {
                         Text("See All")
                             .font(.subheadline)
                             .foregroundColor(.accentColor)
                     }
                 }
             }
+            .padding(.horizontal)
 
             if inProgressEpisodes.isEmpty {
                 EmptyStateView(
@@ -118,6 +121,7 @@ struct DashboardView: View {
                     title: "No recent activity",
                     message: "Start listening to see your recently played episodes here"
                 )
+                .padding(.horizontal)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
@@ -133,12 +137,13 @@ struct DashboardView: View {
     }
 
     private var newEpisodesSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("New Episodes")
-                    .font(.headline)
+                    .font(.title2)
+                    .fontWeight(.bold)
                 Spacer()
-                if !newEpisodes.isEmpty {
+                if !unplayedNewEpisodes.isEmpty {
                     NavigationLink(destination: LibraryView()) {
                         Text("See All")
                             .font(.subheadline)
@@ -146,22 +151,55 @@ struct DashboardView: View {
                     }
                 }
             }
+            .padding(.horizontal)
 
-            if newEpisodes.isEmpty {
+            if unplayedNewEpisodes.isEmpty {
                 EmptyStateView(
                     icon: "waveform",
                     title: "No new episodes",
                     message: "New episodes from your subscriptions will appear here"
                 )
+                .padding(.horizontal)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(newEpisodes.prefix(5)) { episode in
-                        APIEpisodeRow(episode: episode)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(unplayedNewEpisodes.prefix(10)) { episode in
+                            NewEpisodeCard(episode: episode) {
+                                playAPIEpisode(episode)
+                            }
+                        }
                     }
+                    .padding(.horizontal)
                 }
             }
         }
         .padding(.vertical, 8)
+    }
+
+    /// Filter new episodes to exclude those that are already played
+    private var unplayedNewEpisodes: [APIEpisode] {
+        newEpisodes.filter { apiEpisode in
+            !isEpisodePlayed(apiEpisode)
+        }
+    }
+
+    /// Check if an API episode corresponds to a played local episode
+    private func isEpisodePlayed(_ apiEpisode: APIEpisode) -> Bool {
+        let episodeId = apiEpisode.id
+        let audioUrl = apiEpisode.audioUrl
+
+        let descriptor = FetchDescriptor<Episode>(
+            predicate: #Predicate<Episode> { episode in
+                (episode.serverEpisodeId == episodeId || episode.audioURL == audioUrl) && episode.isPlayed
+            }
+        )
+
+        do {
+            let playedEpisodes = try modelContext.fetch(descriptor)
+            return !playedEpisodes.isEmpty
+        } catch {
+            return false
+        }
     }
 
     private func loadDashboard() async {
@@ -184,8 +222,15 @@ struct DashboardView: View {
             // Recently played now uses local in-progress episodes via @Query
             // No API call needed
 
+        } catch is CancellationError {
+            // Task was cancelled (e.g., during pull-to-refresh), ignore silently
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // URLSession task was cancelled, ignore silently
         } catch {
-            errorMessage = error.localizedDescription
+            // Only show error if we don't already have data
+            if dashboardStats == nil && newEpisodes.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
 
         isLoading = false
@@ -199,6 +244,30 @@ struct DashboardView: View {
             return "\(hours)h \(minutes)m"
         } else {
             return "\(minutes)m"
+        }
+    }
+
+    private func playAPIEpisode(_ apiEpisode: APIEpisode) {
+        // Find the local Episode using an efficient fetch with predicate
+        let episodeId = apiEpisode.id
+        let audioUrl = apiEpisode.audioUrl
+
+        // Create a predicate to find the matching episode
+        let descriptor = FetchDescriptor<Episode>(
+            predicate: #Predicate<Episode> { episode in
+                episode.serverEpisodeId == episodeId || episode.audioURL == audioUrl
+            }
+        )
+
+        do {
+            let matchingEpisodes = try modelContext.fetch(descriptor)
+            if let episode = matchingEpisodes.first {
+                Task {
+                    await playerService.play(episode)
+                }
+            }
+        } catch {
+            print("Failed to find local episode: \(error)")
         }
     }
 }
@@ -232,70 +301,176 @@ struct StatCard: View {
     }
 }
 
-struct APIEpisodeRow: View {
+// MARK: - New Episode Card
+
+struct NewEpisodeCard: View {
     let episode: APIEpisode
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Podcast artwork
-            if let artworkUrl = episode.podcast?.artworkUrl ?? episode.artworkUrl,
-               let url = URL(string: artworkUrl) {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.gray.opacity(0.3)
-                }
-                .frame(width: 50, height: 50)
-                .cornerRadius(8)
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 50, height: 50)
-                    .overlay(
-                        Image(systemName: "headphones")
-                            .foregroundColor(.secondary)
-                    )
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(episode.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-
-                if let podcastTitle = episode.podcast?.title {
-                    Text(podcastTitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 8) {
-                    if let duration = episode.durationSeconds {
-                        Text(formatDuration(duration))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+        Button {
+            onTap?()
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                // Artwork
+                ZStack(alignment: .bottomTrailing) {
+                    if let artworkUrl = episode.podcast?.artworkUrl ?? episode.artworkUrl,
+                       let url = URL(string: artworkUrl) {
+                        AsyncImage(url: url) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(1, contentMode: .fill)
+                        } placeholder: {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.secondary.opacity(0.2))
+                                .overlay {
+                                    Image(systemName: "waveform")
+                                        .foregroundStyle(.secondary)
+                                }
+                        }
+                        .frame(width: 140, height: 140)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.secondary.opacity(0.2))
+                            .frame(width: 140, height: 140)
+                            .overlay {
+                                Image(systemName: "waveform")
+                                    .foregroundStyle(.secondary)
+                            }
                     }
 
-                    if let publishDate = episode.publishedAt {
-                        Text(formatDate(publishDate))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
+                    // Play button overlay
+                    Image(systemName: "play.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                        .padding(8)
                 }
+
+                // Episode info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(episode.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                        .foregroundStyle(.primary)
+
+                    if let podcastTitle = episode.podcast?.title {
+                        Text(podcastTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 4) {
+                        if let duration = episode.durationSeconds {
+                            Text(formatDuration(duration))
+                        }
+                        if episode.durationSeconds != nil && episode.publishedAt != nil {
+                            Text("•")
+                        }
+                        if let publishDate = episode.publishedAt {
+                            Text(formatRelativeDate(publishDate))
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                }
+                .frame(width: 140, alignment: .leading)
             }
-
-            Spacer()
-
-            // Play button
-            Image(systemName: "play.circle")
-                .font(.title3)
-                .foregroundColor(.accentColor)
         }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+    }
+
+    private func formatDuration(_ seconds: Int) -> String {
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
+    private func formatRelativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+struct APIEpisodeRow: View {
+    let episode: APIEpisode
+    var onTap: (() -> Void)? = nil
+
+    var body: some View {
+        Button {
+            onTap?()
+        } label: {
+            HStack(spacing: 12) {
+                // Podcast artwork
+                if let artworkUrl = episode.podcast?.artworkUrl ?? episode.artworkUrl,
+                   let url = URL(string: artworkUrl) {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Color.gray.opacity(0.3)
+                    }
+                    .frame(width: 50, height: 50)
+                    .cornerRadius(8)
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 50, height: 50)
+                        .overlay(
+                            Image(systemName: "headphones")
+                                .foregroundColor(.secondary)
+                        )
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(episode.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                        .foregroundStyle(.primary)
+
+                    if let podcastTitle = episode.podcast?.title {
+                        Text(podcastTitle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 8) {
+                        if let duration = episode.durationSeconds {
+                            Text(formatDuration(duration))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let publishDate = episode.publishedAt {
+                            Text(formatDate(publishDate))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                // Play button
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func formatDuration(_ seconds: Int) -> String {
@@ -342,4 +517,5 @@ struct EmptyStateView: View {
 #Preview {
     DashboardView()
         .environment(SyncService.preview)
+        .environment(AudioPlayerService())
 }

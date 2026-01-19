@@ -1,6 +1,66 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Filter & Sort Options
+
+enum EpisodeFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case unplayed = "Unplayed"
+    case inProgress = "In Progress"
+    case uncompleted = "Uncompleted"
+
+    var id: Self { self }
+
+    var apiValue: String {
+        switch self {
+        case .all: return "all"
+        case .unplayed: return "unplayed"
+        case .inProgress: return "in-progress"
+        case .uncompleted: return "uncompleted"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .all: return "list.bullet"
+        case .unplayed: return "circle"
+        case .inProgress: return "play.circle"
+        case .uncompleted: return "circle.lefthalf.filled"
+        }
+    }
+
+    init?(apiValue: String?) {
+        guard let apiValue else { self = .all; return }
+        self = Self.allCases.first { $0.apiValue == apiValue } ?? .all
+    }
+}
+
+enum EpisodeSort: String, CaseIterable, Identifiable {
+    case newest = "Newest"
+    case oldest = "Oldest"
+
+    var id: Self { self }
+
+    var apiValue: String {
+        switch self {
+        case .newest: return "newest"
+        case .oldest: return "oldest"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .newest: return "arrow.down"
+        case .oldest: return "arrow.up"
+        }
+    }
+
+    init?(apiValue: String?) {
+        guard let apiValue else { self = .newest; return }
+        self = Self.allCases.first { $0.apiValue == apiValue } ?? .newest
+    }
+}
+
 struct PodcastDetailView: View {
     @Bindable var podcast: Podcast
 
@@ -10,6 +70,11 @@ struct PodcastDetailView: View {
 
     @State private var isRefreshing = false
     @State private var showingUnsubscribeAlert = false
+
+    // MARK: - Filter & Sort State
+
+    @State private var selectedFilter: EpisodeFilter = .all
+    @State private var selectedSort: EpisodeSort = .newest
 
     // MARK: - Pagination State
 
@@ -31,6 +96,13 @@ struct PodcastDetailView: View {
     /// Number of episodes to load per page
     private let pageSize = 50
 
+    init(podcast: Podcast) {
+        self.podcast = podcast
+        // Initialize filter/sort from podcast's saved settings
+        _selectedFilter = State(initialValue: EpisodeFilter(apiValue: podcast.customEpisodeFilter) ?? .all)
+        _selectedSort = State(initialValue: EpisodeSort(apiValue: podcast.customEpisodeSort) ?? .newest)
+    }
+
     var body: some View {
         List {
             // Header
@@ -48,7 +120,7 @@ struct PodcastDetailView: View {
                     // Initial loading state
                     HStack {
                         Spacer()
-                        ProgressView("Loading episodes...")
+                        SwiftUI.ProgressView("Loading episodes...")
                         Spacer()
                     }
                     .padding(.vertical, 32)
@@ -95,7 +167,7 @@ struct PodcastDetailView: View {
                     if isLoadingEpisodes && !displayedEpisodes.isEmpty {
                         HStack {
                             Spacer()
-                            ProgressView()
+                            SwiftUI.ProgressView()
                                 .padding(.vertical, 8)
                             Spacer()
                         }
@@ -158,6 +230,30 @@ struct PodcastDetailView: View {
         .task {
             await loadEpisodes(reset: true)
         }
+        .onChange(of: selectedFilter) { _, newFilter in
+            Task {
+                // Reset and reload with new filter
+                await loadEpisodes(reset: true)
+                // Save preference to podcast settings
+                try? await syncService.updatePodcastSettings(
+                    for: podcast,
+                    filter: newFilter.apiValue,
+                    sort: nil
+                )
+            }
+        }
+        .onChange(of: selectedSort) { _, newSort in
+            Task {
+                // Reset and reload with new sort
+                await loadEpisodes(reset: true)
+                // Save preference to podcast settings
+                try? await syncService.updatePodcastSettings(
+                    for: podcast,
+                    filter: nil,
+                    sort: newSort.apiValue
+                )
+            }
+        }
     }
 
     // MARK: - Episode Loading
@@ -188,7 +284,9 @@ struct PodcastDetailView: View {
             let response = try await syncService.getEpisodes(
                 for: podcast,
                 limit: pageSize,
-                offset: currentOffset
+                offset: currentOffset,
+                filter: selectedFilter.apiValue,
+                sort: selectedSort.apiValue
             )
 
             // Sync fetched episodes to local SwiftData for offline access
@@ -241,42 +339,42 @@ struct PodcastDetailView: View {
         hasMoreEpisodes = false
     }
 
-    /// Episodes sorted according to podcast settings
+    /// Episodes sorted according to current filter/sort selection
     private var sortedLocalEpisodes: [Episode] {
-        let sort = podcast.customEpisodeSort ?? "newest"
-        let filter = podcast.customEpisodeFilter ?? "all"
-
         var episodes = podcast.episodes
 
-        // Apply filter
-        switch filter {
-        case "unplayed":
+        // Apply filter based on selected filter
+        switch selectedFilter {
+        case .all:
+            break // No filter
+        case .unplayed:
             episodes = episodes.filter { !$0.isPlayed }
-        case "downloaded":
-            episodes = episodes.filter { $0.downloadState == .downloaded }
-        case "in_progress":
+        case .inProgress:
             episodes = episodes.filter { $0.playbackPosition > 0 && !$0.isPlayed }
-        default:
-            break // "all" - no filter
+        case .uncompleted:
+            episodes = episodes.filter { !$0.isPlayed }
         }
 
-        // Apply sort
-        switch sort {
-        case "oldest":
-            return episodes.sorted { ($0.publishDate ?? .distantPast) < ($1.publishDate ?? .distantPast) }
-        case "shortest":
-            return episodes.sorted { ($0.duration ?? 0) < ($1.duration ?? 0) }
-        case "longest":
-            return episodes.sorted { ($0.duration ?? 0) > ($1.duration ?? 0) }
-        default: // "newest"
+        // Apply sort based on selected sort
+        switch selectedSort {
+        case .newest:
             return episodes.sorted { ($0.publishDate ?? .distantPast) > ($1.publishDate ?? .distantPast) }
+        case .oldest:
+            return episodes.sorted { ($0.publishDate ?? .distantPast) < ($1.publishDate ?? .distantPast) }
         }
     }
 
     // MARK: - Views
 
+    private var filterMenuWidth: CGFloat {
+        // Fixed width that accommodates the longest filter text ("In Progress")
+        // Icon (16) + spacing (4) + text width (estimate 70) + horizontal padding (16) + buffer (10)
+        return 116
+    }
+
     private var episodeListHeader: some View {
-        HStack {
+        HStack(spacing: 12) {
+            // Episode count and status
             if isLocalOnlyMode {
                 Label("Offline Mode", systemImage: "wifi.slash")
                     .font(.caption)
@@ -286,9 +384,65 @@ struct PodcastDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
             Spacer()
+
+            // Filter Menu
+            Menu {
+                ForEach(EpisodeFilter.allCases) { filter in
+                    Button {
+                        selectedFilter = filter
+                    } label: {
+                        Label(filter.rawValue, systemImage: filter.icon)
+                        if selectedFilter == filter {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: selectedFilter.icon)
+                    Text(selectedFilter.rawValue)
+                }
+                .font(.caption)
+                .foregroundStyle(selectedFilter == .all ? .secondary : Color.accentColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(width: filterMenuWidth, alignment: .center)
+                .background(
+                    Capsule()
+                        .fill(selectedFilter == .all ? Color.secondary.opacity(0.1) : Color.accentColor.opacity(0.1))
+                )
+            }
+
+            // Sort Menu
+            Menu {
+                ForEach(EpisodeSort.allCases) { sort in
+                    Button {
+                        selectedSort = sort
+                    } label: {
+                        Label(sort.rawValue, systemImage: sort.icon)
+                        if selectedSort == sort {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: selectedSort.icon)
+                    Text(selectedSort.rawValue)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.1))
+                )
+            }
         }
-        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowBackground(Color.clear)
     }
 
@@ -359,6 +513,7 @@ struct EpisodeRow: View {
 
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(SyncService.self) private var syncService
+    @Environment(DownloadService.self) private var downloadService: DownloadService?
 
     @State private var showingShowNotes = false
 
@@ -443,31 +598,68 @@ struct EpisodeRow: View {
 
                 Spacer()
 
-                // Info button for show notes
-                Button {
-                    showingShowNotes = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-
-                // Download button
-                Button {
-                    // Download action
-                } label: {
-                    Image(systemName: downloadIcon)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
+                // Chevron to indicate tappability
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
         }
         .buttonStyle(.plain)
+        // Leading swipe: Mark Played/Unplayed
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                Task {
+                    try? await syncService.markEpisodePlayed(episode, played: !episode.isPlayed)
+                }
+            } label: {
+                Label(
+                    episode.isPlayed ? "Unplayed" : "Played",
+                    systemImage: episode.isPlayed ? "circle" : "checkmark.circle.fill"
+                )
+            }
+            .tint(episode.isPlayed ? .orange : .green)
+        }
+        // Trailing swipe: Add to Queue, Download
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                Task {
+                    try? await syncService.addToQueue(episode: episode)
+                }
+            } label: {
+                Label("Queue", systemImage: "text.badge.plus")
+            }
+            .tint(.indigo)
+
+            if episode.downloadState == .notDownloaded {
+                Button {
+                    Task {
+                        try? await downloadService?.download(episode)
+                    }
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+                .tint(.blue)
+            } else if episode.downloadState == .downloaded {
+                Button(role: .destructive) {
+                    try? downloadService?.deleteDownload(for: episode)
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                }
+            }
+        }
         .contextMenu {
             Button {
                 showingShowNotes = true
             } label: {
                 Label("Show Notes", systemImage: "doc.text")
+            }
+
+            Button {
+                Task {
+                    try? await syncService.addToQueue(episode: episode)
+                }
+            } label: {
+                Label("Add to Queue", systemImage: "text.badge.plus")
             }
 
             Button {
@@ -480,22 +672,27 @@ struct EpisodeRow: View {
                     systemImage: episode.isPlayed ? "circle" : "checkmark.circle"
                 )
             }
+
+            Divider()
+
+            if episode.downloadState == .notDownloaded {
+                Button {
+                    Task {
+                        try? await downloadService?.download(episode)
+                    }
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+            } else if episode.downloadState == .downloaded {
+                Button(role: .destructive) {
+                    try? downloadService?.deleteDownload(for: episode)
+                } label: {
+                    Label("Delete Download", systemImage: "trash")
+                }
+            }
         }
         .sheet(isPresented: $showingShowNotes) {
             ShowNotesView(episode: episode)
-        }
-    }
-
-    private var downloadIcon: String {
-        switch episode.downloadState {
-        case .notDownloaded:
-            return "arrow.down.circle"
-        case .downloading:
-            return "stop.circle"
-        case .downloaded:
-            return "checkmark.circle.fill"
-        case .failed:
-            return "exclamationmark.circle"
         }
     }
 }

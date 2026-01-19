@@ -2,15 +2,23 @@ import SwiftUI
 
 struct SearchView: View {
     @Environment(SyncService.self) private var syncService
-    
+
     @State private var searchText = ""
     @State private var searchResults: [ITunesSearchResult] = []
     @State private var isSearching = false
     @State private var hasSearched = false
     @State private var searchError: String?
-    
+    @State private var isSearchActive = false
+
+    /// Binding to trigger focus from parent view (e.g., when tab is re-selected)
+    @Binding var shouldFocusSearch: Bool
+
     private let searchService = ITunesSearchService()
-    
+
+    init(shouldFocusSearch: Binding<Bool> = .constant(false)) {
+        self._shouldFocusSearch = shouldFocusSearch
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -23,7 +31,7 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Search")
-            .searchable(text: $searchText, prompt: "Search podcasts or enter RSS URL")
+            .searchable(text: $searchText, isPresented: $isSearchActive, prompt: "Search podcasts or enter RSS URL")
             .onSubmit(of: .search) {
                 Task {
                     await performSearch()
@@ -38,6 +46,12 @@ struct SearchView: View {
                             await performSearch()
                         }
                     }
+                }
+            }
+            .onChange(of: shouldFocusSearch) { _, shouldFocus in
+                if shouldFocus {
+                    isSearchActive = true
+                    shouldFocusSearch = false
                 }
             }
         }
@@ -173,7 +187,7 @@ struct SearchResultRow: View {
                     .resizable()
                     .aspectRatio(1, contentMode: .fill)
             } placeholder: {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color.secondary.opacity(0.2))
                     .overlay {
                         Image(systemName: "waveform")
@@ -181,7 +195,7 @@ struct SearchResultRow: View {
                     }
             }
             .frame(width: 64, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             
             // Info
             VStack(alignment: .leading, spacing: 4) {

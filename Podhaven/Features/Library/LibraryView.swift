@@ -66,30 +66,14 @@ struct ContinueListeningCard: View {
     }
 }
 
-// MARK: - Circular Progress View
-
-struct CircularProgressView: View {
-    let progress: Double
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.black.opacity(0.2), lineWidth: 3)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-    }
-}
-
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncService.self) private var syncService
-    
+    @Environment(AudioPlayerService.self) private var playerService
+
     @Query(filter: #Predicate<Podcast> { $0.isSubscribed }, sort: \Podcast.title)
     private var podcasts: [Podcast]
-    
+
     @State private var showingAddPodcast = false
     @State private var isRefreshing = false
     
@@ -167,9 +151,6 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // Podcasts section
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Podcasts")
-                        .font(.title2)
-                        .fontWeight(.bold)
 
                     LazyVGrid(columns: [
                         GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 16)
@@ -187,6 +168,7 @@ struct LibraryView: View {
                 }
             }
             .padding(.vertical)
+            .padding(.bottom, playerService.currentEpisode != nil ? 120 : 0) // Add padding for miniplayer
         }
     }
     
@@ -252,21 +234,23 @@ struct PodcastGridItem: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
             
-            // Text container with fixed height
+            // Text container with fixed height for grid alignment
             VStack(alignment: .leading, spacing: 4) {
                 Text(podcast.title)
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .frame(height: 38, alignment: .topLeading) // Fixed height for 2 lines
-                
+
                 if podcast.unplayedCount > 0 {
                     Text("\(podcast.unplayedCount) unplayed")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Spacer(minLength: 0) // Push content to top, maintain grid alignment
             }
+            .frame(height: 70, alignment: .topLeading) // Fixed height for grid alignment
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

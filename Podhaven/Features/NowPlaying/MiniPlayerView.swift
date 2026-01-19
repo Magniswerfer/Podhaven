@@ -14,22 +14,11 @@ struct MiniPlayerView: View {
         if let episode = playerService.currentEpisode {
             VStack(spacing: 0) {
                 // Progress indicator line at top
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(Color.accentColor.opacity(0.2))
-                        
-                        Rectangle()
-                            .fill(Color.accentColor)
-                            .frame(width: geo.size.width * progress)
-                    }
-                }
-                .frame(height: 3)
-                
-                // Main content
-                Button {
-                    showingFullPlayer = true
-                } label: {
+                ProgressLine(progress: progress)
+
+                // Main content - separate tap area from buttons
+                HStack(spacing: 12) {
+                    // Tappable area for opening full player
                     HStack(spacing: 12) {
                         // Artwork with subtle animation
                         AsyncImage(url: URL(string: episode.effectiveArtworkURL ?? "")) { phase in
@@ -39,7 +28,7 @@ struct MiniPlayerView: View {
                                     .resizable()
                                     .aspectRatio(1, contentMode: .fill)
                             case .failure, .empty:
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(.ultraThinMaterial)
                                     .overlay {
                                         Image(systemName: "waveform")
@@ -50,24 +39,31 @@ struct MiniPlayerView: View {
                             }
                         }
                         .frame(width: 52, height: 52)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                        
+
                         // Info
                         VStack(alignment: .leading, spacing: 3) {
                             Text(episode.title)
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                                 .lineLimit(1)
-                            
+
                             Text(episode.podcast?.title ?? "")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
-                        
-                        Spacer(minLength: 8)
 
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        showingFullPlayer = true
+                    }
+
+                    // Control buttons - separate from tap area
+                    HStack(spacing: 8) {
                         // Play/Pause button
                         Button {
                             playerService.togglePlayPause()
@@ -91,10 +87,9 @@ struct MiniPlayerView: View {
                         .buttonStyle(.bordered)
                         .buttonBorderShape(.circle)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
             .background {
                 // Liquid Glass background
@@ -123,8 +118,11 @@ struct MiniPlayerView: View {
             .shadow(color: .black.opacity(0.15), radius: 12, y: -4)
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
-            .fullScreenCover(isPresented: $showingFullPlayer) {
+            .sheet(isPresented: $showingFullPlayer) {
                 NowPlayingView()
+                    .presentationDragIndicator(.hidden)
+                    .presentationCornerRadius(20)
+                    .interactiveDismissDisabled(false)
             }
         }
     }

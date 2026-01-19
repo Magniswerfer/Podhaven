@@ -299,21 +299,24 @@ struct AddToPlaylistView: View {
 
     let playlist: Playlist
 
-    @Query private var podcasts: [Podcast]
+    // Only load subscribed podcasts to reduce memory usage
+    @Query(filter: #Predicate<Podcast> { $0.isSubscribed }, sort: \Podcast.title)
+    private var subscribedPodcasts: [Podcast]
+
     @State private var selectedItems: Set<String> = []
     @State private var isLoading = false
     @State private var error: Error?
-
-    private var subscribedPodcasts: [Podcast] {
-        podcasts.filter { $0.isSubscribed }
-    }
 
     var body: some View {
         NavigationStack {
             List {
                 ForEach(subscribedPodcasts) { podcast in
                     Section(header: Text(podcast.title)) {
-                        ForEach(podcast.episodes) { episode in
+                        // Limit to 50 most recent episodes per podcast for memory efficiency
+                        let recentEpisodes = podcast.episodes
+                            .sorted { ($0.publishDate ?? .distantPast) > ($1.publishDate ?? .distantPast) }
+                            .prefix(50)
+                        ForEach(Array(recentEpisodes)) { episode in
                             Button {
                                 toggleSelection(episode.id)
                             } label: {
@@ -374,7 +377,7 @@ struct AddToPlaylistView: View {
         do {
             for episodeId in selectedItems {
                 // Find the episode
-                let episode = podcasts
+                let episode = subscribedPodcasts
                     .flatMap { $0.episodes }
                     .first { $0.id == episodeId }
 

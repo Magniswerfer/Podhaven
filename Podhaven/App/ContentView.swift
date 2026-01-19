@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedTab: Tab = .dashboard
+    @State private var shouldFocusSearch = false
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(SyncService.self) private var syncService
     @Environment(\.scenePhase) private var scenePhase
@@ -9,9 +10,23 @@ struct ContentView: View {
     // Timer for periodic sync (every 5 minutes while active)
     @State private var syncTimer: Timer?
 
+    /// Custom binding that detects re-tapping the search tab
+    private var tabSelection: Binding<Tab> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                if newValue == .search && selectedTab == .search {
+                    // Re-tapped search tab - focus the search bar
+                    shouldFocusSearch = true
+                }
+                selectedTab = newValue
+            }
+        )
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            TabView(selection: $selectedTab) {
+            TabView(selection: tabSelection) {
                 DashboardView()
                     .tag(Tab.dashboard)
                     .tabItem {
@@ -30,7 +45,7 @@ struct ContentView: View {
                         Label("Queue", systemImage: "list.bullet")
                     }
 
-                SearchView()
+                SearchView(shouldFocusSearch: $shouldFocusSearch)
                     .tag(Tab.search)
                     .tabItem {
                         Label("Search", systemImage: "magnifyingglass")
@@ -46,7 +61,7 @@ struct ContentView: View {
             // Mini player shown when something is playing (but not on Settings tab)
             if playerService.currentEpisode != nil && selectedTab != .settings {
                 MiniPlayerView()
-                    .padding(.bottom, 49) // Tab bar height
+                    .padding(.bottom, 49)  // Tab bar height
             }
         }
         .task {
@@ -119,7 +134,7 @@ struct ContentView: View {
         let hours = Int(time) / 3600
         let minutes = Int(time) / 60 % 60
         let seconds = Int(time) % 60
-        
+
         if hours > 0 {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }

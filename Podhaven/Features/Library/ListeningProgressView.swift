@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-struct ProgressView: View {
+struct ListeningProgressView: View {
     @Environment(AudioPlayerService.self) private var playerService
     @Environment(SyncService.self) private var syncService
 
@@ -276,7 +276,7 @@ struct EpisodeProgressRow: View {
 }
 
 #Preview {
-    ProgressView()
+    ListeningProgressView()
         .environment(AudioPlayerService())
         .environment(SyncService.preview)
 }

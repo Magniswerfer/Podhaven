@@ -26,6 +26,14 @@ final class AudioPlayerService {
     private var rateObservation: NSKeyValueObservation?
     private var artworkImage: UIImage?
 
+    // Memory-efficient artwork cache with automatic eviction
+    private static let artworkCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 10 // Only keep 10 images max
+        cache.totalCostLimit = 50 * 1024 * 1024 // 50 MB max
+        return cache
+    }()
+
     // Callbacks for progress tracking
     var onPositionUpdate: ((Episode, TimeInterval) async -> Void)?
     var onPlaybackCompleted: ((Episode) async -> Void)?
@@ -74,6 +82,10 @@ final class AudioPlayerService {
         currentEpisode = episode
         isBuffering = true
         error = nil
+
+        // Yield to allow UI to update (show mini player) before heavy work
+        // This ensures the user can immediately see and interact with the player UI
+        await Task.yield()
 
         // Activate audio session before creating player
         activateAudioSession()
@@ -396,18 +408,54 @@ final class AudioPlayerService {
     private func loadArtwork(for episode: Episode) async {
         guard let artworkURLString = episode.effectiveArtworkURL,
               let artworkURL = URL(string: artworkURLString) else {
+            self.artworkImage = nil
             return
         }
-        
+
+        let cacheKey = artworkURLString as NSString
+
+        // Check cache first
+        if let cachedImage = Self.artworkCache.object(forKey: cacheKey) {
+            self.artworkImage = cachedImage
+            return
+        }
+
         do {
             let (data, _) = try await URLSession.shared.data(from: artworkURL)
-            if let image = UIImage(data: data) {
-                self.artworkImage = image
+            if let originalImage = UIImage(data: data) {
+                // Resize image to 600x600 for memory efficiency (lock screen size)
+                let resizedImage = resizeImage(originalImage, targetSize: CGSize(width: 600, height: 600))
+                self.artworkImage = resizedImage
+
+                // Cache with cost based on image size
+                let cost = Int(resizedImage.size.width * resizedImage.size.height * 4) // Approximate bytes
+                Self.artworkCache.setObject(resizedImage, forKey: cacheKey, cost: cost)
             }
         } catch {
             print("AudioPlayerService: Failed to load artwork: \(error)")
+            self.artworkImage = nil
         }
     }
+
+    private func resizeImage(_ image: UIImage, targetSize: CGSize) -> UIImage {
+        let size = image.size
+        let widthRatio = targetSize.width / size.width
+        let heightRatio = targetSize.height / size.height
+        let ratio = min(widthRatio, heightRatio)
+
+        // Don't upscale
+        if ratio >= 1.0 {
+            return image
+        }
+
+        let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+    }
+
+    private var lastNowPlayingUpdate: TimeInterval = 0
 
     private func setupObservers() {
         guard let player = player else { return }
@@ -417,12 +465,14 @@ final class AudioPlayerService {
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) {
             [weak self] time in
             guard let self else { return }
+            let seconds = time.seconds
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.currentTime = time.seconds
+                self.currentTime = seconds
 
-                // Update now playing info periodically (every 5 seconds)
-                if Int(time.seconds) % 5 == 0 {
+                // Update now playing info every 10 seconds to reduce overhead
+                if seconds - self.lastNowPlayingUpdate >= 10 {
+                    self.lastNowPlayingUpdate = seconds
                     self.updateNowPlayingInfo()
                 }
             }
@@ -434,6 +484,7 @@ final class AudioPlayerService {
             let itemStatus = item.status
             let itemDuration = item.duration.seconds
             let itemError = item.error
+            // Dispatch to main actor for @Observable property updates
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 switch itemStatus {
